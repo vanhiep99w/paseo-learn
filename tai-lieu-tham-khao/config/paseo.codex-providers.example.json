@@ -1,0 +1,52 @@
+{
+  "$schema": "https://paseo.sh/schemas/paseo.config.v1.json",
+  "version": 1,
+  "daemon": {
+    "mcp": {
+      "enabled": true,
+      "injectIntoAgents": false
+    }
+  },
+  "agents": {
+    "providers": {
+      "codex-lead": {
+        "extends": "codex",
+        "label": "Codex Lead",
+        "description": "Full-access orchestration owner governed by developer instructions",
+        "command": ["__PASEO_HOME__/bin/codex-role-app-server"],
+        "env": {
+          "CODEX_HOME": "__CODEX_ROLES_HOME__/lead",
+          "PASEO_MCP_ACCESS": "lead"
+        }
+      },
+      "codex-worker": {
+        "extends": "codex",
+        "label": "Codex Worker",
+        "description": "Full-access implementation agent bounded by its Task Brief",
+        "command": ["codex"],
+        "env": {
+          "CODEX_HOME": "__CODEX_ROLES_HOME__/worker"
+        }
+      },
+      "codex-reviewer": {
+        "extends": "codex",
+        "label": "Codex Reviewer",
+        "description": "Full-access runtime with behaviorally read-only review instructions",
+        "command": ["codex"],
+        "env": {
+          "CODEX_HOME": "__CODEX_ROLES_HOME__/reviewer"
+        }
+      },
+      "codex-supervisor": {
+        "extends": "codex",
+        "label": "Codex Supervisor",
+        "description": "Full-access governance observer with instruction-gated recovery",
+        "command": ["__PASEO_HOME__/bin/codex-role-app-server"],
+        "env": {
+          "CODEX_HOME": "__CODEX_ROLES_HOME__/supervisor",
+          "PASEO_MCP_ACCESS": "supervisor"
+        }
+      }
+    }
+  }
+}

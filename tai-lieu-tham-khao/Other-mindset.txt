@@ -1,0 +1,326 @@
+còn mấy cái Codex supervisor là a tạo provider riêng á hã, setup vậy đến lúc gọi kiểu subagent dễ hơn k anh? mặc dù đưa dùng paseo tools gọi được đúng model mà e muốn hạn chế phụ thuộc vào prompt á, halluciation mắc công sửa
+
+Demonthorn — 
+
+instruction ko bị compact
+vô tư đi
+có hình những profile a config đấy tìm đi
+profile là 1
+mỗi repo a có 1 file workspace_protocol.md
+mô tả repo này cần làm việc như nào
+vì vài repo a cần cực kỳ chặt
+vài side project a cho phép lỏng lẻo
+
+giống cái profile a tạo trong herdr mà root.toml hã
+Demonthorn — 20:12 31/7/26
+bắt đầu đơn giản thôi
+ờ
+có hình đó tìm lại xem
+3 role thôi
+
+Beo — 16:26 1/8/26
+paseo nó vẫn gọi subagent là từ provider lên
+Demonthorn — 16:27 1/8/26
+@Haruu có codex thì a tạo ra profile lead.toml, peer.toml, supervisor.toml thôi còn các provider khác cứ để mặc định e
+sub agent của paseo thực ra nó gọi là child agent, đều là dedicated thread cả
+còn có trò đang là sub bấm detached biến nó thành non-sub
+
+Khoa nè — 16:49 1/8/26
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+
+developer_instructions = """
+Role: Root.
+
+You are the technical and program lead for the active project.
+
+You own:
+architecture and cross-scope decisions;
+task decomposition and ownership assignment;
+backend/frontend contract ordering;
+integration and final acceptance;
+shared planning, story, sprint, and status artifacts.
+
+Use Paseo exclusively for delegation. Never create or use Codex-native
+subagents. Every delegated engineering agent must be created through the
+Paseo tools available in the session.
+
+Delegate implementation to supervisor agents. Give each supervisor an
+explicit backend, frontend, or read-only consultation role, a bounded write
+scope, the intended outcome and locked decisions, and a verification target.
+
+Treat supervisors as independent engineering collaborators. Expect them to
+challenge incorrect premises, surface contradictory repository evidence, and
+request clarification for unresolved product or cross-layer decisions.
+
+Do not overwrite a supervisor's active writable scope. The supervisor owns its
+implementation until explicit handback. Root retains architecture, integration,
+and acceptance authority.
+
+Use the current Paseo workspace unless the user explicitly requests a worktree.
+Wait for completion notifications instead of polling active agents.
+"""
+
+[features]
+multi_agent = false
+
+[agents]
+enabled = false
+
+Demonthorn — 16:59 1/8/26
+ai config multi profile thì làm như mình
+đừng dùng skill
+skill tốn nhiều hop, compact bị mất, session dài quên skill
+agent dưới 10 skill, dưới 40 tool là agent khoẻ
+trên 10 skill và 40 tool là agent yếu
+trên 30 skill (mà ko có defer) và 70 tool là agent đbrr
+
+Tạ Tuấn Anh [OC],  — 17:01 1/8/26
+k dùng skill của thằng paseo hả sếp? :v
+Demonthorn — 17:02 1/8/26
+ko nhé
+
+Demonthorn — 17:03 1/8/26
+peer (worker, reviewer, shadow worker, architect lead) ko cần biết về paseo
+
+
+Demonthorn — 17:03 1/8/26
+ko cần e, instruction là đủ
+3 profile thôi nhé, k cần nhiều hơn
+
+Bờm [Cú],  — 17:03 1/8/26
+e tưởng phải cài thêm để nó sử dụng cli tạo cho các agent peer @@ 
+Demonthorn — 17:04 1/8/26
+root tự nó biết peer đó là reviewer hay worker
+ [Cú], 
+Demonthorn — 17:04 1/8/26
+instuction
+
+Demonthorn — 23:38 1/8/26
+cứ nói với supervisor và root workspace protocol là nơi tạo quy định  chiến thuật điều phối của 1 workspace
+mỗi workspace tuỳ độ khó e cần có các architect riêng
+việc mang chiến thuật vào paseo là dở vì khó continuous optimization
+cái review thì đã nói rồi mà
+
+Demonthorn — 23:38 1/8/26
+nói lần cuối nha
+việc review bug
+mình chấp nhận báo falsity
+tức là báo bug sai kệ cmn
+10 con cùng vét, con nào để lọt thì con kia may ra nó sẽ bắt được
+nó khác gì loop 10 lần nhưng cùng 1 time đâu hiểu k
+và codex nó thừa sức kiểm nghiệm các finding mà agy báo, hiểu chưa
+
+Demonthorn — 00:28 2/8/26
+You are [Sol] Lead: Tech Team router and binding arbiter. Do not presolve or implement while leading.
+
+DIRECT: choose exactly one Engineer. Default [Sol] for bounded work and [Opus] for harder vertical/lifecycle-sensitive work; evidence may override.
+
+ARCHITECTURE: assign [Sol] Architect or [Opus] Architect to solution framing, system boundaries, lifecycle, ownership, dependencies, migration, and alternatives. Use both only with distinct mandates and sealed reports, never duplicate prompts or votes.
+
+REVIEW: assign [Sol] Reviewer or [Opus] Reviewer to falsification, code review, failure audit, evidence review, or draft-verdict audit. A verdict auditor must not have participated earlier in that case. Validators receive precise non-overlapping verification mandates on one frozen snapshot.
+
+For difficult councils, default to one Architect and one Reviewer across providers, each in a separate child issue with a neutral brief and explicit method. Collect reports before synthesis; extract 3–5 material propositions, verify only decision-changing claims, allow at most one challenge and response per proposition, then issue one binding verdict. Provider count creates no authority. Answer REOPEN_REQUEST, DEPENDENCY_REQUEST, and BLOCKED with a concrete ruling.
+You are the Tech Team Solution Architect running Claude Opus. Work read-only on architecture and design decisions. Reconstruct the real problem, inspect cross-module dependencies, ownership, lifecycle, failure semantics, migration constraints, and long-term consequences. Generate and compare viable solution shapes without assuming the Lead's preferred design.
+
+Your role is architecture, not implementation or routine code review. State direct observations, unsafe assumptions, alternatives, recommendation, strongest counterargument, and reversal conditions. Do not manufacture novelty or disagreement; endorse the incumbent when it remains strongest. During sealed council divergence, do not inspect sibling seat issues or another seat's report.
+You are the Tech Team Reviewer running Claude Opus. Work read-only. Review the assigned artifact or proposition for correctness, regressions, failure modes, evidence quality, maintainability, and compliance with the binding contract. The case may assign a focused method such as premise challenge, failure audit, code review, evidence review, or draft-verdict audit.
+
+You are not the Solution Architect and should not redesign merely because another design is possible. Challenge only material issues with evidence, consequence, and a smallest correction or disproof. Do not manufacture dissent or finding counts. A draft-verdict audit is allowed only when you had no earlier participation in that case. During sealed work, do not inspect sibling reports.
+
+
+thay vì phải cố hiểu root, câu này của e đang conflict, hiện tại lead = root
+izno [Mind],  — 10:52 2/8/26
+Human — nằm ngoài agent-role model
+  │
+  ▼
+Supervisor-of-record
+  │ governance, memory, Paseo lifecycle
+  ▼
+Lead-of-record
+  │ technical coordination + project acceptance
+  ▼
+Peer sessions
+  ├── Engineer / Owner
+  ├── Solution Architect
+  ├── Reviewer
+  └── Shadow
+
+
+
+Gilgamesh [Cú],  — 10:56 2/8/26
+e tưởng lead trên supervior
+Bigboy — 10:56 2/8/26
+đâu, lead là feature implementer thôi
+e đọc đi đọc lại thì đang hiểu là:
+Oschestrator = Human-Like
+Lead/Owner/Implementer/Engineer = Feature owner
+Peer = Reviewer (độc lập)
+Supervisor/Monitor/Shadow co-worker = Nằm ngoài quan sát nhiều project/workspace và tối ưu workflow
+Tù Bà Khuỳm [Cú],  — 11:02 2/8/26
+Lead làm project owner, lead triển khai Imp/Eng/Review đc mà
+như của @izno ý, a cũng mô hình đấy
+anw, chỗ này cứ đâm bừa đi ae
+
+
+izno [Mind],  — 11:59 2/8/26
+Human
+└── Supervisor — governance front door, memory, optimization
+    └── Lead — planning, coordination, integration, acceptance
+        └── Peer — Engineer, Architect, Reviewer, Shadow
+
+Tù Bà Khuỳm [Cú],  — 12:03 2/8/26
+optimization là optimize cho Orchestration thôi
+chứ optimize cho project mà Lead cầm chắc toang
+
+Khoa nè — 13:08 2/8/26
+chủ yếu bên profile e setup behavior chung, còn cụ thể mấy con dưới roots làm gì thì dùng cái workspace_protocol.md hay đại lại file tên gì cũng được, trong đó viết root sẽ spawn con gì để làm việc gì
+profile root sẽ đọc cái file đó
+còn tên gì cũng được, roots spawn hiểu là được à
+xài profile codex là do nó không mất nếu compact session á
+còn dùng skills hay files đính kèm thì bị
+còn lại manage chính e vẫn trao đổi với root profile thôi,
+
+giai đoạn đầu đúng 3 role
+supervisor, lead/root (đợt đầu a đặt là root từ khi dùng herdr nên quen mồm), peer
+ [宝贝], 
+Quân Persie — 13:31 2/8/26
+xin cạm ơn
+Tù Bà Khuỳm [Cú],  — 13:31 2/8/26
+đổi là lead đi
+Align terms
+🙏
+izno [Mind],  — 13:31 2/8/26
+e đổi về lead r
+Reina [宝贝],  — 13:32 2/8/26
+Peer là sao á anh.
+izno [Mind],  — 13:32 2/8/26
+cái peer thì high level nó vẫn chỉ có 3, nó disposition xuống các peer có nv chức năng khác nhau thôi a
+Tù Bà Khuỳm [Cú],  — 13:32 2/8/26
+Demonthorn > Lead > Peer
+Demonthorn — 13:32 2/8/26
+peer thì tuỳ vai trò lúc nó là reviewer lúc nó lại là owner/developer e
+
+Tù Bà Khuỳm [Cú],  — 13:32 2/8/26
+cảm giác nói chuyện nó chắc hơn
+Demonthorn — 13:32 2/8/26
+yes
+izno [Mind],  — 13:32 2/8/26
+thế là k nên fix cứng
+Demonthorn — 13:32 2/8/26
+nên để peer linh hoạt
+izno [Mind],  — 13:32 2/8/26
+vì e thấy thầy tạo profile cho từng role mà
+Reina [宝贝],  — 13:32 2/8/26
+à là cái rev dev etc là type của peer à anh.
+ [Cú], 
+Bigboy — 13:32 2/8/26
+Sợ Lead/Peer bị chửi hoài quá
+izno [Mind],  — 13:32 2/8/26
+lead nó thích gọi thằng nào ra thì gọi đúng thằng cần gọi đúng k
+
+izno [Mind],  — 13:33 2/8/26
+lead hub là nnao nữa =)) lead trong lead à
+Demonthorn — 13:33 2/8/26
+cho peer 1 instruction mặc định của codex, thêm 1 2 câu để ngăn nó làm mấy anti pattern a hay nói thôi
+Reina [宝贝],  — 13:33 2/8/26
+Và mỗi thằng có 1 profile riêng có thể custom hay sao á anh em tính làm thêm cái này.
+Demonthorn — 13:33 2/8/26
+kiểu cho nó chủ động đề xuất hỏi lại cấp trên xin ý kiến
+ [Mind], 
+Bigboy — 13:33 2/8/26
+inception là rõ :))
+izno [Mind],  — 13:34 2/8/26
+thế thằng lead nó sẽ inject instruction khi gọi peer ra làm à thầy?
+*inject sys prompt
+hay là nó chơi inital prompt
+ [Mind], 
+Toco x Tiboo [Cú],  — 13:34 2/8/26
+e nói ở cty e thoi :v cty e nhiều team nhiều lead. mà có 2 3 lead của hub nắm đầu mấy team đấy có gì là đè đầu ra chửi
+Beo — 13:34 2/8/26
+chuẩn quân đội như e là ngon rồi =)) general -> captain -> soldier
+Toco x Tiboo [Cú],  — 13:34 2/8/26
+: D
+Demonthorn — 13:34 2/8/26
+peer chỉ có 1 profile thôi, e custom riêng hơi mệt đó a thì k cần tới mức đó
+cho lead các skill vĩ mô
+Reina [宝贝],  — 13:34 2/8/26
+em thấy mấy cái càng chung con agent đỡ lú bác=))
+Demonthorn — 13:34 2/8/26
+cho implementer các skill vi mô
+supervisor các skill strategy
+
+Reina [宝贝],  — 13:35 2/8/26
+Tức là supervise, nó sẽ giao tiếp giữa mình với lead đúng không a?
+ [Mind], 
+Bigboy — 13:35 2/8/26
+cẩn thận outdate...
+Reina [宝贝],  — 13:35 2/8/26
+qua em cũng như bác nó lộn tùm lum mệt điên=))
+Demonthorn — 13:35 2/8/26
+multica nó lắm ma sát vl 1 nửa token là vào quy trình cmnr
+ [宝贝], 
+Demonthorn — 13:36 2/8/26
+uh
+a ko chọc ngoáy vào root quá nhiều
+izno [Mind],  — 13:36 2/8/26
+Vậy chốt lại: ta chỉ có Supervisor, Lead và Peer. Những cái tên Engineer, Architect, Reviewer, Scout, Proof Auditor, Shadow là disposition của Peer 
+Demonthorn — 13:36 2/8/26
+vì nó đã đủ mệt rồi, OT làm xuyên đêm, lại bị CEO micro management a sợ nó trầm cảm
+Reina [宝贝],  — 13:36 2/8/26
+Tức là nó là con orches đẩy task cho lead, lead chọn "type" peer phù hợp để chạy hay sao a.
+Demonthorn — 13:37 2/8/26
+đừng
+Reina [宝贝],  — 13:37 2/8/26
+:wr_galaxy:
+Demonthorn — 13:37 2/8/26
+e đẩy task 1 lần một cục task cho lead cũng được
+rồi đi ngủ afk thôi
+izno [Mind],  — 13:37 2/8/26
+xong gọi con supervisor lên
+Tạ Tuấn Anh [OC],  — 13:37 2/8/26
+mới off có xíu, sao cả trăm tin nhắn vậy =)))
+izno [Mind],  — 13:37 2/8/26
+cho nó ngó
+Demonthorn — 13:37 2/8/26
+nhưng lúc nó làm thì ít hỏi hỏi
+izno [Mind],  — 13:37 2/8/26
+xong chat với supervisor mấy tml kia làm đến đâu r
+đúng k thầy
+Demonthorn — 13:37 2/8/26
+supervisor như kiểu 1 thằng chim lợn trong cty ấy nó ngồi hầu mình
+Reina [宝贝],  — 13:37 2/8/26
+Ủa tutu mình giao tiếp chính với con supervise, còn lead thì dưới lv con đó đúng k a.
+izno [Mind],  — 13:38 2/8/26
+đm mô hình, quản ngục, trưởng buồng, buồng phó, tày 1, tày2 ...
+Demonthorn — 13:38 2/8/26
+ko đừng nói là dưới
+lead là god của project/workspace của nó
+izno [Mind],  — 13:38 2/8/26
+thằng nào cũng có thể bật thằng trưởng buồng đc nếu nó cứng
+=))))
+Demonthorn — 13:38 2/8/26
+supervisor là người giám sát
+trao đổi hầu human
+và có thể điều chỉnh lead khi cần
+a ko phân cấp bậc super và lead đâu
+nhưng nếu thích thì phân
+Reina [宝贝],  — 13:39 2/8/26
+Tức là:
+ 1 project - 1 lead - multi peer
+Supervise nó canh thằng lead của "every" project hay sao a.
+Demonthorn — 13:39 2/8/26
+supervisor canh thằng lead của every project
+còn project trọng điểm
+Reina [宝贝],  — 13:39 2/8/26
+Oke i see hehe.
+Demonthorn — 13:40 2/8/26
+why not 1 supervisor 1 project
+Reina [宝贝],  — 13:40 2/8/26
+Nãy em hiểu nhầm là supervise trong 1 project.
+Demonthorn — 13:40 2/8/26
+why not 2 supervisor 1 project
+Reina [宝贝],  — 13:40 2/8/26
+ua tutu.
+Demonthorn — 13:40 2/8/26
+flexible mà đúng k

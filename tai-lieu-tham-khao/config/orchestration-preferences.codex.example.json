@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "impl": "codex-worker/gpt-5.6-luna",
+    "ui": "codex-worker/gpt-5.6-luna",
+    "research": "codex-reviewer/gpt-5.6-luna",
+    "planning": "codex-lead/gpt-5.6-sol",
+    "audit": "codex-reviewer/gpt-5.6-luna"
+  },
+  "preferences": [
+    "Use codex-lead for decomposition and acceptance, codex-worker for bounded writes in the current workspace, and codex-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+    "For impl and ui agents, use codex-worker/gpt-5.6-luna with thinkingOptionId max. Luna max is the required default, not an optional downgrade.",
+    "For research and audit agents, use codex-reviewer/gpt-5.6-luna with thinkingOptionId max. Luna max is the required Reviewer default, not an optional downgrade.",
+    "Discover provider/model availability on the target Paseo daemon before creating an agent. Never silently fall back.",
+    "Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use codex-supervisor in ordinary single-task flows."
+  ]
+}

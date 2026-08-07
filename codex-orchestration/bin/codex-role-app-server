@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Paseo probes only the configured executable with --version, without the
+# command-prefix arguments from config.json.
+if [[ "${1:-}" == "--version" ]]; then
+	exec codex --version
+fi
+
+if ! command -v codex >/dev/null 2>&1; then
+	echo "codex-role-app-server: codex is not on PATH" >&2
+	exit 127
+fi
+
+codex_home_input="${CODEX_HOME:-${HOME}/.codex}"
+codex_home="$(realpath -m "$codex_home_input")"
+launcher_dir="$(pwd -P)"
+workspace_dir="$launcher_dir"
+codex_config_args=()
+paseo_agent_scoped=false
+
+if [[ -n "${PASEO_AGENT_ID:-}" && -n "${PASEO_AGENT_CWD:-}" ]]; then
+	paseo_agent_scoped=true
+	workspace_dir="$(realpath -m "$PASEO_AGENT_CWD")"
+fi
+
+# Paseo daemon-wide MCP injection is disabled. Only providers declaring
+# PASEO_MCP_ACCESS receive the agent-scoped endpoint. The launcher deliberately
+# adds no filesystem sandbox; role config and developer instructions control the
+# requested full-access runtime and its behavioral authority boundaries.
+case "${PASEO_MCP_ACCESS:-}" in
+	"")
+		;;
+	lead | supervisor)
+		if [[ "$paseo_agent_scoped" != true ]]; then
+			# Discovery probes have no stable agent identity, so they must not get
+			# an agent-scoped MCP URL.
+			:
+		elif [[ ! "$PASEO_AGENT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+			echo "codex-role-app-server: invalid PASEO_AGENT_ID" >&2
+			exit 2
+		else
+			paseo_mcp_base_url="${PASEO_MCP_BASE_URL:-http://127.0.0.1:6767/mcp/agents}"
+			paseo_mcp_url="${paseo_mcp_base_url}?callerAgentId=${PASEO_AGENT_ID}"
+			codex_config_args+=(
+				-c "mcp_servers.paseo.url=\"${paseo_mcp_url}\""
+				-c 'mcp_servers.paseo.required=true'
+			)
+			if [[ -n "${PASEO_MCP_BEARER_TOKEN:-}" ]]; then
+				codex_config_args+=(
+					-c 'mcp_servers.paseo.bearer_token_env_var="PASEO_MCP_BEARER_TOKEN"'
+				)
+			fi
+			if [[ "$PASEO_MCP_ACCESS" == "supervisor" ]]; then
+				codex_config_args+=(
+					-c 'mcp_servers.paseo.enabled_tools=["speak","create_agent","send_agent_prompt","get_agent_status","list_agents","list_workspaces","list_providers","list_models","inspect_provider","get_agent_activity","list_pending_permissions"]'
+				)
+			fi
+		fi
+		;;
+	*)
+		echo "codex-role-app-server: unsupported PASEO_MCP_ACCESS role" >&2
+		exit 2
+		;;
+esac
+
+if [[ ! -d "$codex_home" ]]; then
+	echo "codex-role-app-server: CODEX_HOME does not exist: $codex_home" >&2
+	exit 2
+fi
+
+if [[ "$workspace_dir" == "$codex_home" ||
+	"$workspace_dir" == "$codex_home"/* ||
+	"$codex_home" == "$workspace_dir"/* ]] &&
+	[[ "$paseo_agent_scoped" == true ]]; then
+	echo "codex-role-app-server: workspace and CODEX_HOME must not overlap (workspace=$workspace_dir, CODEX_HOME=$codex_home)" >&2
+	exit 2
+fi
+
+exec codex "${codex_config_args[@]}" "$@"
