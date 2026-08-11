@@ -1,0 +1,166 @@
+# Pack: claude-orchestration (Claude Code CLI)
+
+The Claude Code role pack runs Anthropic's `claude` CLI as a four-role team
+under Paseo. It lives at `claude-orchestration/` and is the direct Claude
+counterpart of [codex-orchestration.md](codex-orchestration.md) and
+[pi-orchestration.md](pi-orchestration.md); shared concepts are in
+[../architecture.md](../architecture.md).
+
+Status: **spec-grade**. Paseo supports a native `claude` provider
+(`"extends": "claude"`), but on hosts where the `claude` CLI or its provider is
+unavailable the pack has not been live-verified end-to-end (see
+`docs/paseo-agent-orchestration-architecture-vi.md` §9.3). The enforcement
+logic is ported from the Pi pack and unit-smoke-tested; the Paseo delegation
+path is not yet exercised.
+
+## How role separation works
+
+Each role gets its own **`CLAUDE_CONFIG_DIR`** (`~/.claude-paseo/<role>/`).
+Claude Code reads its system prompt, settings, MCP config, skills, and hooks
+from that directory, so each role has isolated resources. This is the Claude
+Code equivalent of Codex's per-role `CODEX_HOME` and Pi's `PI_CODING_AGENT_DIR`.
+
+A role home contains:
+
+```
+~/.claude-paseo/<role>/
+├── CLAUDE.md        # role system prompt (Claude Code reads CLAUDE.md, NOT AGENTS.md)
+├── settings.json    # permissions (allow/deny, defaultMode) + hooks config
+├── hooks/           # copied policy hook scripts (pre-tool-use.mjs, user-prompt-submit.mjs, ...)
+├── skills/          # role-specific skills (lead ships paseo-team-lead)
+├── prompts/         # role-specific prompt templates
+└── .credentials.json → ~/.claude/.credentials.json   # shared login (Linux/Windows)
+```
+
+### Per-role resources
+
+Because resources are directory-scoped, you can give each role its **own** skills
+and tools: drop a skill into `claude-orchestration/profiles/<role>/skills/`, a
+prompt template into `prompts/`, and the installer syncs them into that role's
+home only. The role's `settings.json` registers the hooks (`hooks/...`).
+
+Role behavior sources:
+
+| Role | System prompt | Enforcement |
+|---|---|---|
+| lead | `profiles/lead/CLAUDE.md` | full access + `mcp__paseo__*`; write/edit only if `PASEO_TEAM_LEAD_WRITE=1` |
+| worker | `profiles/worker/CLAUDE.md` | Edit/Write/Bash authority from the current-turn V3 brief (hook); no MCP |
+| reviewer | `profiles/reviewer/CLAUDE.md` | always read-only (`permissions.deny` write/edit + hook); Bash for inspection only; no MCP |
+| supervisor | `profiles/supervisor/CLAUDE.md` | Read + `mcp__paseo__*` filtered to 11 tools (hook); no shell, no write/edit |
+
+## The hard enforcement layer: policy hooks
+
+Like the Pi pack's extension, this pack adds a **hard policy layer** — but
+expressed as Claude Code **hooks** (Node ESM scripts) instead of a Pi extension
+API. The source lives at `claude-orchestration/shared/paseo-team-policy/` and is
+copied into each role's `hooks/`. Each role's `settings.json` registers:
+
+- **`UserPromptSubmit`** → `hooks/user-prompt-submit.mjs`: parses the V3 Task
+  Brief out of the current prompt and persists it to a per-session state file
+  (the Claude Code analog of the Pi extension's `before_agent_start` re-parse).
+  Write authority is therefore re-derived every turn and never leaks across
+  turns.
+- **`PreToolUse`** (matcher
+  `(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|mcp__paseo__.*)`)
+  → `hooks/pre-tool-use.mjs`: reads `tool_name` + `tool_input` from stdin and
+  decides fail-closed. A denial writes the reason to stderr and exits 2 (stderr
+  is fed back to the model).
+
+The hooks enforce (ported from `paseo-team-policy.ts`):
+
+- per-role tool policy (worker write only with brief; reviewer/supervisor
+  read-only; lead write only with `PASEO_TEAM_LEAD_WRITE=1`);
+- Worker git authority from the current V3 brief — branch-scoped push
+  (`git push -u origin HEAD:refs/heads/agent/<TASK_ID>`), always-deny
+  force-push/amend/merge/deploy;
+- Reviewer always read-only (git mutations blocked);
+- Supervisor no shell; `mcp__paseo__*` limited to the 11-tool monitoring
+  allowlist plus a gated `create_agent` (claude-lead recovery shape only,
+  argument-checked);
+- worker/reviewer cannot call `mcp__paseo__*` (no control plane);
+- native `Agent`/`Task` subagents blocked for every role (Paseo is the only
+  control plane);
+- bash Paseo-CLI guard (`paseo run`/`send`/`wait` blocked for worker/reviewer).
+
+Key exported symbols (pure, unit-testable): `parseTaskBrief`,
+`resolveWorkerMode`, `workerGitAuthority`, `gitAuthorityBlockReason`,
+`supervisorCreateAgentBlockReason`, `blockReasonForTool`, `detectRole`. When
+`PASEO_CLAUDE_ROLE` is unset the hook is passive (exit 0).
+
+The one loss vs the Pi extension: hooks cannot enumerate the tool registry
+(`getAllTools()`/`setActiveTools()`); they only gate individual calls. The
+static `permissions.deny` lists compensate for the coarse tool availability.
+
+## The launcher: claude-role-app-server
+
+Lead and Supervisor run through `claude-orchestration/bin/claude-role-app-server`;
+Worker/Reviewer use plain `claude`. The launcher mirrors `pi-role-app-server` /
+`codex-role-app-server`:
+
+1. Handles `--version` (`exec claude --version`).
+2. Reads `CLAUDE_CONFIG_DIR` (default `~/.claude`).
+3. When `PASEO_MCP_ACCESS` is `lead`/`supervisor` and `PASEO_AGENT_ID` +
+   `PASEO_AGENT_CWD` are present, builds the agent-scoped MCP URL
+   (`${PASEO_MCP_BASE_URL:-http://127.0.0.1:6767/mcp/agents}?callerAgentId=<id>`)
+   and injects it via an inline `--mcp-config` JSON. A bearer token is forwarded
+   as a header `Authorization: Bearer ${PASEO_MCP_BEARER_TOKEN}` (literal —
+   Claude Code expands it, so the secret never enters argv).
+4. Refuses to launch if workspace and `CLAUDE_CONFIG_DIR` overlap.
+5. `exec claude <args> "$@"`, forwarding Paseo's Agent SDK / headless args.
+
+Because Worker/Reviewer providers use `command: ["claude"]` (no launcher), they
+get no `--mcp-config` and therefore no Paseo MCP server. The Supervisor's 11-tool
+allowlist is enforced by the `PreToolUse` hook (Claude Code's MCP config has no
+per-tool `includeTools` field, unlike Pi's `mcp.json`).
+
+## Install
+
+`claude-orchestration/install.mjs` (run via `./install claude`):
+
+1. Creates four role homes; copies each role's `CLAUDE.md`, `settings.json`,
+   mirrors `skills/`/`prompts/`.
+2. Copies `shared/paseo-team-policy/*.mjs` into each role's `hooks/`.
+3. Symlinks `~/.claude/.credentials.json` into each role (Linux/Windows) so all
+   roles share one login. On macOS (Keychain) it logs a warning — set
+   `ANTHROPIC_API_KEY` in the provider env, or run `claude` once per role home.
+4. Copies the launcher to `$PASEO_HOME/bin/claude-role-app-server` (mode 0755).
+5. Merges four `claude-*` providers into `~/.paseo/config.json` with
+   `injectIntoAgents = false`; sets `PASEO_MCP_ACCESS` on Lead/Supervisor.
+6. Merges `~/.paseo/orchestration-preferences.json` (discovery-oriented — no
+   pinned models, since the Claude model catalog is account/plan-specific).
+7. Checks prerequisites (`claude`, `paseo`, `.credentials.json`), backs up
+   JSON, never restarts the daemon. Fails closed on differing targets unless
+   `--force`.
+
+## Where to start / what to watch for
+
+- **Change role behavior:** edit `claude-orchestration/profiles/<role>/CLAUDE.md`
+  (the system prompt) and/or the policy in
+  `claude-orchestration/shared/paseo-team-policy/policy.mjs`. Validate with
+  `node --check` on the hooks, then re-run `./install claude`.
+- **Add a role skill:** drop it under `claude-orchestration/profiles/<role>/skills/`
+  and re-run `./install claude`. Confirm with
+  `CLAUDE_CONFIG_DIR=~/.claude-paseo/<role> claude`.
+- **Change Supervisor's exposed tools:** edit the `SUPERVISOR_ALLOWED_MCP_TARGETS`
+  list in `policy.mjs` (the hook enforces it). The codex/pi supervisor lists are
+  the reference (11 tools).
+- **Worker/Reviewer "see" `mcp__paseo__*`:** they should not — their provider
+  gets no `--mcp-config`. If they do, it is a project `.mcp.json` (not this
+  pack); the hook still blocks `mcp__paseo__*` for them fail-closed.
+- **No sandbox:** Claude Code has none (full access + `bypassPermissions`).
+  Hooks + `permissions.deny` are behavioral boundaries, not ACLs (see
+  [../architecture.md](../architecture.md#capability-is-not-authority)).
+- **Live verification outstanding:** the enforcement logic is smoke-tested; the
+  real Lead→Worker→Reviewer flow under Paseo is not yet exercised (claude
+  provider may be unavailable). Treat as beta.
+
+## Key source references
+
+- `claude-orchestration/profiles/<role>/CLAUDE.md` — role identity and authority.
+- `claude-orchestration/shared/paseo-team-policy/{brief,policy}.mjs` — pure policy (all symbols above).
+- `claude-orchestration/shared/paseo-team-policy/{pre-tool-use,user-prompt-submit}.mjs` — hook entries.
+- `claude-orchestration/bin/claude-role-app-server` — selective MCP injection via `--mcp-config`.
+- `claude-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md` — Lead workflow + routing cycle.
+- `claude-orchestration/templates/TASK_BRIEF_V3.md` — canonical brief template.
+- `claude-orchestration/config/paseo.providers.example.json` — provider template.
+- `claude-orchestration/README.md` — pack README (Vietnamese).

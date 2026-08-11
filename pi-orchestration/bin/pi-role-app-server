@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# pi-role-app-server — selective Paseo MCP injector for the Pi role pack.
+#
+# Mirrors codex-role-app-server. Paseo daemon-wide MCP injection is OFF; only
+# providers that set PASEO_MCP_ACCESS=lead|supervisor reach this launcher, which
+# derives the agent-scoped MCP URL from PASEO_AGENT_ID and exports it as
+# PASEO_MCP_URL. The role's own mcp.json (in PI_CODING_AGENT_DIR) references that
+# URL via ${PASEO_MCP_URL}, so lead/supervisor get the Paseo MCP server while
+# worker/reviewer (plain `pi`, no launcher, no paseo entry in their mcp.json)
+# get none.
+#
+# The launcher adds NO filesystem sandbox. Pi has no sandbox mode; role behavior
+# is bounded by the role AGENTS.md (system prompt), the per-role tool allowlist
+# in settings.json / the policy extension, and the paseo server includeTools
+# allowlist in supervisor's mcp.json.
+
+# Paseo probes only the configured executable with --version, without the
+# command-prefix arguments from config.json.
+if [[ "${1:-}" == "--version" ]]; then
+	exec pi --version
+fi
+
+if ! command -v pi >/dev/null 2>&1; then
+	echo "pi-role-app-server: pi is not on PATH" >&2
+	exit 127
+fi
+
+agent_dir_input="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
+agent_dir="$(realpath -m "$agent_dir_input")"
+launcher_dir="$(pwd -P)"
+workspace_dir="$launcher_dir"
+paseo_agent_scoped=false
+
+if [[ -n "${PASEO_AGENT_ID:-}" && -n "${PASEO_AGENT_CWD:-}" ]]; then
+	paseo_agent_scoped=true
+	workspace_dir="$(realpath -m "$PASEO_AGENT_CWD")"
+fi
+
+# Daemon-wide MCP injection is disabled. Only providers declaring
+# PASEO_MCP_ACCESS receive the agent-scoped endpoint URL via env. The role's
+# mcp.json (under PI_CODING_AGENT_DIR) consumes it through ${PASEO_MCP_URL}.
+case "${PASEO_MCP_ACCESS:-}" in
+	"")
+		;;
+	lead | supervisor)
+		if [[ "$paseo_agent_scoped" != true ]]; then
+			# Discovery probes have no stable agent identity, so they must not get
+			# an agent-scoped MCP URL. Leave PASEO_MCP_URL unset; the role's
+			# mcp.json will fail-closed at connect time rather than impersonate.
+			:
+		elif [[ ! "$PASEO_AGENT_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+			echo "pi-role-app-server: invalid PASEO_AGENT_ID" >&2
+			exit 2
+		else
+			paseo_mcp_base_url="${PASEO_MCP_BASE_URL:-http://127.0.0.1:6767/mcp/agents}"
+			export PASEO_MCP_URL="${paseo_mcp_base_url}?callerAgentId=${PASEO_AGENT_ID}"
+			# PASEO_MCP_BEARER_TOKEN, when present in the provider env, is forwarded
+			# as-is; the role mcp.json references it via bearerTokenEnv.
+		fi
+		;;
+	*)
+		echo "pi-role-app-server: unsupported PASEO_MCP_ACCESS role" >&2
+		exit 2
+		;;
+esac
+
+if [[ ! -d "$agent_dir" ]]; then
+	echo "pi-role-app-server: PI_CODING_AGENT_DIR does not exist: $agent_dir" >&2
+	exit 2
+fi
+
+# Guard against the agent config dir and the workspace overlapping, which would
+# let an agent edit its own role resources or credentials.
+if [[ "$workspace_dir" == "$agent_dir" ||
+	"$workspace_dir" == "$agent_dir"/* ||
+	"$agent_dir" == "$workspace_dir"/* ]] &&
+	[[ "$paseo_agent_scoped" == true ]]; then
+	echo "pi-role-app-server: workspace and PI_CODING_AGENT_DIR must not overlap (workspace=$workspace_dir, agent_dir=$agent_dir)" >&2
+	exit 2
+fi
+
+# Forward every argument Paseo would normally pass to pi (e.g. --mode rpc,
+# --model, --thinking). The role's PI_CODING_AGENT_DIR, PASEO_PI_ROLE and
+# PASEO_MCP_ACCESS come from the provider env; PASEO_MCP_URL (when set) is
+# consumed by the role mcp.json via ${PASEO_MCP_URL}.
+exec pi "$@"

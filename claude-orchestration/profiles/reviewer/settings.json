@@ -1,0 +1,39 @@
+{
+  "$comment": "Reviewer role. Behaviorally read-only: the write/edit tools are denied in permissions AND blocked by the PreToolUse hook. Bash is kept for read-only inspection (git log, tests, greps); the hook blocks any git commit/push/merge/amend/force-push with REVIEWER_AUTHORITY (all false). No paseo MCP. Native Agent tool + web denied.",
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "deny": [
+      "Agent",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "NotebookEdit",
+      "Artifact",
+      "WebSearch",
+      "WebFetch"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|mcp__paseo__.*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR}/hooks/pre-tool-use.mjs\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_CONFIG_DIR}/hooks/user-prompt-submit.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "$comment": "Reviewer role resources. Behaviorally read-only: the policy extension revokes write/edit, leaving read/bash for inspection. No Paseo MCP. Independent of the Engineer.",
+  "packages": ["npm:pi-mcp-adapter"],
+  "extensions": ["./extensions/paseo-team-policy.ts"],
+  "skills": ["./skills"],
+  "prompts": ["./prompts"],
+  "defaultProjectTrust": "never",
+  "enableSkillCommands": true
+}

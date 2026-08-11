@@ -25,19 +25,15 @@ const unknown = [...args].filter((arg) => !allowedArgs.has(arg));
 
 if (unknown.length) {
 	console.error(`Unknown option(s): ${unknown.join(", ")}`);
-	console.error("Usage: node install-codex-profiles.mjs [--dry-run] [--force]");
+	console.error("Usage: node codex-orchestration/install.mjs [--dry-run] [--force]");
 	process.exit(2);
 }
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = scriptDir;
-const sourceProfiles = path.join(repoRoot, "codex-orchestration", "profiles");
-const sourceLauncher = path.join(
-	repoRoot,
-	"codex-orchestration",
-	"bin",
-	"codex-role-app-server",
-);
+// This installer lives inside codex-orchestration/, so the pack root is its own
+// directory and profiles/ + bin/ sit next to it.
+const packRoot = path.dirname(fileURLToPath(import.meta.url));
+const sourceProfiles = path.join(packRoot, "profiles");
+const sourceLauncher = path.join(packRoot, "bin", "codex-role-app-server");
 const codexHome = path.resolve(
 	process.env.CODEX_HOME || path.join(homedir(), ".codex"),
 );
@@ -344,6 +340,6 @@ async function main() {
 }
 
 main().catch((error) => {
-	console.error(`install-codex-profiles: ${error.message}`);
+	console.error(`codex-orchestration install: ${error.message}`);
 	process.exit(1);
 });

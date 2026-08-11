@@ -1,0 +1,4 @@
+/~/
+*.bak.*
+*.tmp.*
+node_modules/

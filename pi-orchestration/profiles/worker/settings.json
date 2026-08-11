@@ -1,0 +1,9 @@
+{
+  "$comment": "Worker role resources. No paseo entry in mcp.json and no PASEO_MCP_URL, so the `mcp` proxy tool has no Paseo server to reach — the worker cannot orchestrate. Write/commit/push authority comes only from the current-turn V3 brief, enforced by the policy extension.",
+  "packages": ["npm:pi-mcp-adapter"],
+  "extensions": ["./extensions/paseo-team-policy.ts"],
+  "skills": ["./skills"],
+  "prompts": ["./prompts"],
+  "defaultProjectTrust": "never",
+  "enableSkillCommands": true
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://paseo.sh/schemas/paseo.config.v1.json",
+  "version": 1,
+  "daemon": {
+    "mcp": {
+      "enabled": true,
+      "injectIntoAgents": false
+    }
+  },
+  "agents": {
+    "providers": {
+      "pi-lead": {
+        "extends": "pi",
+        "label": "Pi Lead",
+        "description": "Orchestration owner. Gets full Paseo MCP; bounded by AGENTS.md and the policy extension.",
+        "command": ["__PASEO_HOME__/bin/pi-role-app-server"],
+        "env": {
+          "PI_CODING_AGENT_DIR": "__PI_ROLES_HOME__/lead",
+          "PASEO_PI_ROLE": "lead",
+          "PASEO_MCP_ACCESS": "lead"
+        }
+      },
+      "pi-worker": {
+        "extends": "pi",
+        "label": "Pi Worker",
+        "description": "Bounded implementation agent. No Paseo MCP; write authority comes only from the current-turn Task Brief.",
+        "command": ["pi"],
+        "env": {
+          "PI_CODING_AGENT_DIR": "__PI_ROLES_HOME__/worker",
+          "PASEO_PI_ROLE": "worker"
+        }
+      },
+      "pi-reviewer": {
+        "extends": "pi",
+        "label": "Pi Reviewer",
+        "description": "Independent review. No Paseo MCP; behaviorally read-only on an exact candidate SHA or the current working diff.",
+        "command": ["pi"],
+        "env": {
+          "PI_CODING_AGENT_DIR": "__PI_ROLES_HOME__/reviewer",
+          "PASEO_PI_ROLE": "reviewer"
+        }
+      },
+      "pi-supervisor": {
+        "extends": "pi",
+        "label": "Pi Supervisor",
+        "description": "Governance observer. Gets a read-only allowlist of Paseo MCP tools; instruction-gated recovery only.",
+        "command": ["__PASEO_HOME__/bin/pi-role-app-server"],
+        "env": {
+          "PI_CODING_AGENT_DIR": "__PI_ROLES_HOME__/supervisor",
+          "PASEO_PI_ROLE": "supervisor",
+          "PASEO_MCP_ACCESS": "supervisor"
+        }
+      }
+    }
+  }
+}

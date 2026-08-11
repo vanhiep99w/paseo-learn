@@ -75,11 +75,11 @@ Yêu cầu:
 
 Từ root của repo, xem trước thay đổi:
 
-    node ./install-codex-profiles.mjs --dry-run
+    ./install codex --dry-run
 
 Cài profile:
 
-    node ./install-codex-profiles.mjs
+    ./install codex
 
 Installer:
 
@@ -97,7 +97,7 @@ Installer:
 Nếu một profile/provider cùng tên đã có nội dung khác, installer fail closed.
 Đọc diff rồi mới chạy:
 
-    node ./install-codex-profiles.mjs --force
+    ./install codex --force
 
 `--force` backup file bị ghi đè trước khi cài.
 

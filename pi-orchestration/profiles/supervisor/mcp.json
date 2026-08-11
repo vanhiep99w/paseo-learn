@@ -1,0 +1,22 @@
+{
+  "$comment": "Supervisor receives a read-only allowlist of Paseo MCP tools plus the recovery-gated create_agent. includeTools mirrors the codex supervisor enabled_tools list. The URL is agent-scoped (PASEO_MCP_URL, set by pi-role-app-server). The hard create_agent shape is further enforced by the policy extension.",
+  "mcpServers": {
+    "paseo": {
+      "url": "${PASEO_MCP_URL}",
+      "lifecycle": "lazy",
+      "includeTools": [
+        "speak",
+        "create_agent",
+        "send_agent_prompt",
+        "get_agent_status",
+        "list_agents",
+        "list_workspaces",
+        "list_providers",
+        "list_models",
+        "inspect_provider",
+        "get_agent_activity",
+        "list_pending_permissions"
+      ]
+    }
+  }
+}
