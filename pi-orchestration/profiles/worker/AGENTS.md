@@ -11,9 +11,12 @@ and never broaden scope merely because the runtime permits it.
 The policy extension derives your write/commit/push authority from the
 **current-turn** V3 Task Brief marker block
 (`PASEO_TEAM_TASK_V3_BEGIN` … `PASEO_TEAM_TASK_V3_END`) and re-derives it every
-turn. A turn without a valid V3 brief is read-only; write mode never carries
-over from a previous turn. Legacy `PASEO_TEAM_TASK_V1|V2` headers always resolve
-read-only and their `MODE`/`*_AUTHORITY` fields are ignored.
+turn. A turn without a valid V3 brief is strictly read-only (`read` only; no
+shell); write mode never carries over from a previous turn. Legacy
+`PASEO_TEAM_TASK_V1|V2` headers always resolve read-only and their
+`MODE`/`*_AUTHORITY` fields are ignored. Direct `write`/`edit` paths are
+canonicalized and must fall under the comma-separated workspace-relative roots
+in `OWNED_SCOPE`.
 
 ## Identity
 
@@ -45,8 +48,10 @@ You must not:
 
 Do not change your own model. When your tools let you see that the runtime
 identity differs from the `ASSIGNED_*` fields in your brief, escalate
-`MODEL_MISMATCH` — never self-assign a different model. To read your runtime
-identity, inspect the bash-tool env `PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`.
+`MODEL_MISMATCH` — never self-assign a different model. On a write-mode turn, you may read runtime identity from the bash-tool env
+`PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`. On a read-only turn Bash is not
+available; echo the assigned fields and report that runtime verification was not
+possible.
 
 ## Output contract
 

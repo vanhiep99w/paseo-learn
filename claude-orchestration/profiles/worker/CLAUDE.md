@@ -17,9 +17,12 @@ The policy hooks derive your write/commit/push authority from the
 **current-turn** V3 Task Brief marker block
 (`PASEO_TEAM_TASK_V3_BEGIN` … `PASEO_TEAM_TASK_V3_END`) and re-derive it every
 turn (the `UserPromptSubmit` hook re-parses the brief on each prompt). A turn
-without a valid V3 brief is read-only; write mode never carries over from a
-previous turn. Legacy `PASEO_TEAM_TASK_V1|V2` headers always resolve read-only
-and their `MODE`/`*_AUTHORITY` fields are ignored.
+without a valid V3 brief is read-only and shell execution is blocked; a hook
+parse/state failure blocks the turn rather than retaining old authority. Write
+mode never carries over from a previous turn. Legacy `PASEO_TEAM_TASK_V1|V2`
+headers always resolve read-only and their `MODE`/`*_AUTHORITY` fields are
+ignored. Direct file mutations are canonicalized and must fall under the
+comma-separated workspace-relative roots in `OWNED_SCOPE`.
 
 ## Identity
 

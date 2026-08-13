@@ -41,9 +41,9 @@ import {
 	isToolCallEventType,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { writeFileSync } from "node:fs";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import path, { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Role detection
@@ -93,7 +93,8 @@ export const LEAD_ALLOWED_MCP_TARGETS: string[] = [
 	...PASEO_TOOLS.permissions,
 ];
 
-const PI_READ_ONLY = ["read", "bash"];
+const PI_LEAD_READ_ONLY = ["read", "bash"];
+const PI_STRICT_READ_ONLY = ["read"];
 const PI_WRITE = ["read", "write", "edit", "bash"];
 const MCP_TOOLS = ["mcp", "mcp_script"];
 
@@ -134,7 +135,7 @@ export function policyFor(
 		case "lead":
 			return {
 				allow: [
-					...(leadWriteEnabled() ? PI_WRITE : PI_READ_ONLY),
+					...(leadWriteEnabled() ? PI_WRITE : PI_LEAD_READ_ONLY),
 					...LEAD_ALLOWED_MCP_TARGETS,
 					...MCP_TOOLS,
 				],
@@ -144,13 +145,13 @@ export function policyFor(
 			return workerMode === "write"
 				? { allow: [...PI_WRITE], deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS] }
 				: {
-						allow: [...PI_READ_ONLY],
-						deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS, "write", "edit"],
+						allow: [...PI_STRICT_READ_ONLY],
+						deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS, "write", "edit", "bash"],
 					};
 		case "reviewer":
 			return {
-				allow: [...PI_READ_ONLY],
-				deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS, "write", "edit"],
+				allow: [...PI_STRICT_READ_ONLY],
+				deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS, "write", "edit", "bash"],
 			};
 		case "supervisor":
 			return {
@@ -207,7 +208,10 @@ export function denyReason(
 		return "This Worker session is read-only (MODE: read-only). Propose the change in your report instead of editing files.";
 	}
 	if (role === "reviewer" && (toolName === "write" || toolName === "edit")) {
-		return "Reviewer is behaviorally read-only. Report findings instead of editing files.";
+		return "Reviewer is strictly read-only. Report findings instead of editing files.";
+	}
+	if ((role === "reviewer" || (role === "worker" && workerMode !== "write")) && toolName === "bash") {
+		return `${role} has no shell authority on a read-only turn. Use the read tool and report any verification that requires command execution.`;
 	}
 	if (role === "supervisor" && (toolName === "write" || toolName === "edit")) {
 		return "Supervisor cannot modify product code. Send an observation to the Lead instead.";
@@ -421,6 +425,23 @@ const V3_ALLOWED_FIELDS = new Set([
 	...AUTHORITY_FIELDS,
 ]);
 
+function normalizeOwnedScope(raw: string | undefined): string[] | null {
+	if (raw === undefined || raw.trim().length === 0) return null;
+	const roots = raw.split(",").map((item) => item.trim());
+	if (roots.some((item) => item.length === 0)) return null;
+	const normalized: string[] = [];
+	for (const root of roots) {
+		if (root.includes("\0") || /^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/.test(root)) return null;
+		const parts = root.replaceAll("\\", "/").split("/").filter(
+			(part) => part !== "" && part !== ".",
+		);
+		if (parts.includes("..")) return null;
+		const value = parts.length === 0 ? "." : parts.join("/");
+		if (!normalized.includes(value)) normalized.push(value);
+	}
+	return normalized;
+}
+
 function parseV3Brief(lines: string[]): ParsedTaskBrief {
 	const malformed: string[] = [];
 	const fields = new Map<string, string>();
@@ -493,6 +514,9 @@ function parseV3Brief(lines: string[]): ParsedTaskBrief {
 				malformed.push(`invalid ${field} value "${value}"`);
 			}
 		}
+	}
+	if (mode === "write" && normalizeOwnedScope(fields.get("OWNED_SCOPE")) === null) {
+		malformed.push("MODE: write requires a valid workspace-relative OWNED_SCOPE");
 	}
 	if (malformed.length > 0) return failClosed();
 	return { version: 3, mode, malformed, fields };
@@ -580,6 +604,62 @@ export function workerGitAuthority(
 		merge: false,
 		deploy: false,
 	};
+}
+
+/**
+ * Parse OWNED_SCOPE as comma-separated workspace-relative path roots. `.` means
+ * the whole workspace. Invalid or ambiguous scope fails closed.
+ */
+export function ownedScopeRoots(
+	brief: ParsedTaskBrief | null,
+): string[] | null {
+	if (brief === null || isLegacyBrief(brief) || brief.malformed.length > 0) return null;
+	return normalizeOwnedScope(brief.fields.get("OWNED_SCOPE"));
+}
+
+function canonicalPath(pathname: string): string {
+	let cursor = path.resolve(pathname);
+	const suffix: string[] = [];
+	while (!existsSync(cursor)) {
+		const parent = path.dirname(cursor);
+		if (parent === cursor) return path.resolve(pathname);
+		suffix.unshift(path.basename(cursor));
+		cursor = parent;
+	}
+	return path.resolve(realpathSync(cursor), ...suffix);
+}
+
+function pathIsWithin(root: string, target: string): boolean {
+	const relative = path.relative(root, target);
+	return relative === "" ||
+		(!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+/** Enforce direct write/edit calls against canonical OWNED_SCOPE roots. */
+export function ownedScopeBlockReason(
+	brief: ParsedTaskBrief | null,
+	targetPath: string | undefined,
+	cwd: string,
+): string | null {
+	const roots = ownedScopeRoots(brief);
+	if (roots === null) {
+		return "OWNED_SCOPE is missing or invalid. Use comma-separated workspace-relative path roots (or . for the whole workspace).";
+	}
+	if (!targetPath?.trim()) {
+		return "The write/edit call did not provide a verifiable path; refusing outside-scope mutation fail-closed.";
+	}
+	const workspace = canonicalPath(cwd);
+	const target = canonicalPath(path.resolve(cwd, targetPath));
+	if (!pathIsWithin(workspace, target)) {
+		return `Write target "${targetPath}" resolves outside the assigned workspace.`;
+	}
+	const allowed = roots.some((root) => {
+		const scopeRoot = canonicalPath(path.resolve(cwd, root));
+		return pathIsWithin(workspace, scopeRoot) && pathIsWithin(scopeRoot, target);
+	});
+	return allowed
+		? null
+		: `Write target "${targetPath}" is outside OWNED_SCOPE (${roots.join(", ")}). Report a REOPEN_REQUEST to the Lead.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -781,7 +861,7 @@ export default function (pi: ExtensionAPI) {
 		// this extension does not mutate the system prompt.
 	});
 
-	pi.on("tool_call", async (event) => {
+	pi.on("tool_call", async (event, ctx) => {
 		const workerMode = currentWorkerMode();
 		const policy = currentPolicy(r);
 		if (policy.deny.includes(event.toolName)) {
@@ -797,6 +877,13 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			return { block: true, reason: denyReason(r, workerMode, event.toolName) };
+		}
+		if (
+			r === "worker" &&
+			(isToolCallEventType("write", event) || isToolCallEventType("edit", event))
+		) {
+			const scopeBlock = ownedScopeBlockReason(currentBrief, event.input.path, ctx.cwd);
+			if (scopeBlock) return { block: true, reason: scopeBlock };
 		}
 		if (isToolCallEventType("mcp", event)) {
 			if (r === "worker" || r === "reviewer") {

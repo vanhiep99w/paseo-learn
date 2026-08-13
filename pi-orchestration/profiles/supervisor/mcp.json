@@ -5,17 +5,11 @@
       "url": "${PASEO_MCP_URL}",
       "lifecycle": "lazy",
       "includeTools": [
-        "speak",
         "create_agent",
         "send_agent_prompt",
         "get_agent_status",
         "list_agents",
-        "list_workspaces",
-        "list_providers",
-        "list_models",
-        "inspect_provider",
-        "get_agent_activity",
-        "list_pending_permissions"
+        "get_agent_activity"
       ]
     }
   }

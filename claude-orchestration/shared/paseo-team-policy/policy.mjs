@@ -19,7 +19,10 @@
  * denied with a reason. When PASEO_CLAUDE_ROLE is unset the hook stays passive.
  */
 
+import { existsSync, realpathSync } from "node:fs";
+import path from "node:path";
 import {
+	ownedScopeRoots,
 	resolveWorkerMode,
 	workerGitAuthority,
 	REVIEWER_AUTHORITY,
@@ -79,8 +82,8 @@ export const LEAD_ALLOWED_MCP_TARGETS = [
 	...PASEO_TOOLS.permissions,
 ];
 
-// The 11-tool monitoring + recovery-gated allowlist. Mirrors the codex launcher
-// enabled_tools list and the pi supervisor mcp.json includeTools verbatim.
+// The five-tool monitoring + recovery-gated allowlist. Mirrors the Codex
+// launcher and Pi supervisor mcp.json verbatim.
 const SUPERVISOR_MONITORING_TARGETS = [
 	"list_agents",
 	"get_agent_status",
@@ -232,6 +235,58 @@ const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Arti
 const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
 const PASEO_MCP_PREFIX = "mcp__paseo__";
 
+function canonicalPath(pathname) {
+	let cursor = path.resolve(pathname);
+	const suffix = [];
+	while (!existsSync(cursor)) {
+		const parent = path.dirname(cursor);
+		if (parent === cursor) return path.resolve(pathname);
+		suffix.unshift(path.basename(cursor));
+		cursor = parent;
+	}
+	return path.resolve(realpathSync(cursor), ...suffix);
+}
+
+function pathIsWithin(root, target) {
+	const relative = path.relative(root, target);
+	return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+function writeTarget(toolName, input) {
+	if (typeof input !== "object" || input === null) return null;
+	const rec = /** @type {Record<string, unknown>} */ (input);
+	const keys = toolName === "NotebookEdit"
+		? ["notebook_path", "file_path", "path"]
+		: ["file_path", "path", "notebook_path"];
+	for (const key of keys) {
+		if (typeof rec[key] === "string" && rec[key].trim().length > 0) return rec[key];
+	}
+	return null;
+}
+
+/** Enforce direct file mutations against workspace-relative OWNED_SCOPE roots. */
+export function ownedScopeBlockReason(brief, targetPath, cwd) {
+	const roots = ownedScopeRoots(brief);
+	if (roots === null) {
+		return "OWNED_SCOPE is missing or invalid. Use a comma-separated list of workspace-relative path roots (or . for the whole workspace).";
+	}
+	if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
+		return "The write tool did not provide a verifiable file path; refusing outside-scope mutation fail-closed.";
+	}
+	const workspace = canonicalPath(cwd);
+	const target = canonicalPath(path.resolve(cwd, targetPath));
+	if (!pathIsWithin(workspace, target)) {
+		return `Write target "${targetPath}" resolves outside the assigned workspace.`;
+	}
+	const allowed = roots.some((root) => {
+		const scopeRoot = canonicalPath(path.resolve(cwd, root));
+		return pathIsWithin(workspace, scopeRoot) && pathIsWithin(scopeRoot, target);
+	});
+	return allowed
+		? null
+		: `Write target "${targetPath}" is outside OWNED_SCOPE (${roots.join(", ")}). Report a REOPEN_REQUEST to the Lead.`;
+}
+
 /**
  * Decide whether a Claude Code tool call must be blocked for this role/turn.
  * Returns a denial reason (string) or null to allow.
@@ -240,9 +295,10 @@ const PASEO_MCP_PREFIX = "mcp__paseo__";
  * @param {import("./brief.mjs").ParsedTaskBrief | null} brief
  * @param {string} toolName
  * @param {unknown} toolInput
+ * @param {string} [cwd]
  * @returns {string | null}
  */
-export function blockReasonForTool(role, brief, toolName, toolInput) {
+export function blockReasonForTool(role, brief, toolName, toolInput, cwd = process.cwd()) {
 	// Native delegation: disabled for ALL roles. Paseo is the only control plane;
 	// Lead/Supervisor delegate through mcp__paseo__create_agent, never the native
 	// Agent tool.
@@ -266,6 +322,8 @@ export function blockReasonForTool(role, brief, toolName, toolInput) {
 					? "This Worker session is read-only (no valid V3 brief with MODE: write this turn). Propose the change in your report instead of editing files."
 					: "EDIT_AUTHORITY is denied for this task even though MODE is write. Report AUTHORITY_MISMATCH to the Lead.";
 			}
+			const scopeBlock = ownedScopeBlockReason(brief, writeTarget(toolName, toolInput), cwd);
+			if (scopeBlock) return scopeBlock;
 		}
 		if (role === "lead" && !leadWriteEnabled()) {
 			return "Lead write/edit is disabled by default (set PASEO_TEAM_LEAD_WRITE=1 in the protocol to enable).";
@@ -277,6 +335,9 @@ export function blockReasonForTool(role, brief, toolName, toolInput) {
 	if (SHELL_TOOLS.has(toolName)) {
 		if (role === "supervisor") {
 			return "Supervisor cannot run shell commands. Observe through the Paseo MCP (list_agents, get_agent_status, get_agent_activity) and Read for inspection.";
+		}
+		if (role === "worker" && resolveWorkerMode(brief) !== "write") {
+			return "This Worker turn is read-only, so shell execution is disabled. A new valid V3 brief with MODE: write is required for Bash/PowerShell.";
 		}
 		const command =
 			typeof (/** @type {any} */ (toolInput)?.command) === "string"

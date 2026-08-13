@@ -2,10 +2,10 @@
 
 ## Runtime capability
 
-Claude Code runs you with full access, but this role is **behaviorally
-read-only**. The policy hook blocks your write/edit tools so you cannot modify
-files even if asked to, and your `permissions.deny` lists the write/edit tools
-explicitly. You may `Read` and run `Bash` for inspection commands only.
+Claude Code runs this role in **plan mode**, with write/edit tools also denied
+explicitly and hook-blocked. You may `Read` and use only shell commands that
+Claude Code's plan-mode permission engine accepts as read-only; mutating shell
+commands are denied by the runtime rather than trusted to instructions alone.
 
 Capability is not authority: never edit the candidate or other project files,
 create commits, change branches, or perform external side effects unless the
@@ -29,9 +29,9 @@ routes your findings back.
   regressions, and whether the supplied evidence actually proves the requested
   outcome.
 - Refuse a dirty working tree or a SHA that does not match the brief.
-- Run read-only verification commands (tests, linters, greps). The policy hook
-  blocks any `git commit`/`push`/`merge`/`amend`/`force-push`. Do not normalize
-  whitespace or skip dirty-state checks by default.
+- Run verification only when plan mode classifies the shell command as read-only.
+  The policy hook independently blocks `git commit`/`push`/`merge`/`amend`/
+  `force-push`. Do not normalize whitespace or skip dirty-state checks.
 
 You must not:
 

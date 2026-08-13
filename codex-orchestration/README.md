@@ -45,7 +45,7 @@ Paseo là control plane duy nhất.
 | `codex-lead` | `paseo-lead` | `gpt-5.6-sol` / `high` | Có (đầy đủ, qua launcher) | phân rã, giao việc, nghiệm thu |
 | `codex-worker` | `paseo-worker` | `gpt-5.6-luna` / `max` | Không | implement trong scope của Task Brief |
 | `codex-reviewer` | `paseo-reviewer` | `gpt-5.6-luna` / `max` | Không | review candidate SHA / working diff, read-only |
-| `codex-supervisor` | `paseo-supervisor` | `gpt-5.6-luna` / `medium` | Có (allowlist 11 tool qua enabled_tools) | quan sát governance / recovery |
+| `codex-supervisor` | `paseo-supervisor` | `gpt-5.6-luna` / `medium` | Có (allowlist 5 tool monitoring/recovery qua enabled_tools) | quan sát governance / recovery |
 
 Worker/Reviewer không nhận Paseo MCP: provider của chúng là `["codex"]` (không qua
 launcher) nên không có `-c` overrides injected. Chỉ Lead/Supervisor chạy qua
@@ -231,7 +231,7 @@ Config đặt:
 
 ```
 codex-lead        Paseo MCP đầy đủ
-codex-supervisor  Paseo MCP + enabled_tools allowlist 11 tool
+codex-supervisor  Paseo MCP + enabled_tools allowlist 5 tool
 codex-worker      không có Paseo MCP
 codex-reviewer    không có Paseo MCP
 ```

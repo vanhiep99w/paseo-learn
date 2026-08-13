@@ -13,8 +13,9 @@ Kiến trúc tôn trọng đặc thù Claude Code:
   riêng (`~/.claude-paseo/<role>/`).
 - Claude Code đọc **`CLAUDE.md`** làm system prompt (không phải `AGENTS.md` như
   Codex/Pi). Mỗi role ship một `CLAUDE.md`.
-- Claude Code **không có sandbox**; `permissions.defaultMode: bypassPermissions`
-  cho full access không prompt, ranh giới hành vi bằng `permissions.deny` + một
+- Claude Code **không có sandbox filesystem**; Lead/Worker dùng
+  `permissions.defaultMode: bypassPermissions`, Reviewer dùng `plan`, và ranh
+  giới hành vi được bổ sung bằng `permissions.deny` + một
   **lớp policy hooks** (PreToolUse/UserPromptSubmit) — tương đương extension cứng
   của pack Pi.
 - MCP của Paseo được inject chọn lọc qua launcher `claude-role-app-server` bằng
@@ -32,7 +33,7 @@ Kiến trúc tôn trọng đặc thù Claude Code:
 | Agent CLI | `codex app-server` | `pi --mode rpc` | `claude` (Agent SDK / headless) |
 | Cấu hình role | `CODEX_HOME/<role>/config.toml` | `PI_CODING_AGENT_DIR/<role>/` | `CLAUDE_CONFIG_DIR/<role>/` (CLAUDE.md + settings.json) |
 | Role instructions | `developer_instructions` (TOML) | `AGENTS.md` | **`CLAUDE.md`** |
-| Sandbox | `danger-full-access` | không có | `defaultMode: bypassPermissions` (không sandbox) |
+| Sandbox | `danger-full-access` | không có | Lead/Worker `bypassPermissions`; Reviewer `plan` |
 | MCP chọn lọc | launcher thêm `-c mcp_servers.paseo.url=…` | launcher set `PASEO_MCP_URL`; `mcp.json` đọc `${PASEO_MCP_URL}` | launcher inject `--mcp-config` JSON (URL agent-scoped) |
 | Allowlist MCP (supervisor) | `enabled_tools` (config MCP) | `includeTools` (`mcp.json`) | **hooks PreToolUse** trên `mcp__paseo__*` |
 | Enforcement cứng | KHÔNG (instruction + enabled_tools) | extension `setActiveTools` + backstop `tool_call` | **policy hooks** (PreToolUse + UserPromptSubmit) |
@@ -47,7 +48,7 @@ Paseo là control plane duy nhất.
 | `claude-lead` | `lead` | Có (đầy đủ, qua launcher) | phân rã, giao việc, nghiệm thu |
 | `claude-worker` | `worker` | Không | implement trong scope của Task Brief |
 | `claude-reviewer` | `reviewer` | Không | review candidate SHA / working diff, read-only |
-| `claude-supervisor` | `supervisor` | Có (allowlist 11 tool qua hooks) | quan sát governance / recovery |
+| `claude-supervisor` | `supervisor` | Có (5 tool monitoring/recovery qua hooks) | quan sát governance / recovery |
 
 Worker/Reviewer không nhận Paseo MCP: provider của chúng `command: ["claude"]`
 (không qua launcher) nên không có `--mcp-config` injected. Chỉ Lead/Supervisor
@@ -62,9 +63,9 @@ script nằm ở `shared/paseo-team-policy/`, được copy vào `hooks/` của 
 home, và `settings.json` đăng ký chúng:
 
 - **`user-prompt-submit.mjs`** (event `UserPromptSubmit`): parse V3 Task Brief từ
-  prompt hiện tại, lưu state per-session. Đây là tương đương `before_agent_start`
-  của Pi — re-derive authority **mỗi turn**. Turn không có brief hợp lệ →
-  read-only (write mode không leak qua turn).
+  prompt hiện tại, thay state per-session atomically. Đây là tương đương
+  `before_agent_start` của Pi — re-derive authority **mỗi turn**. Turn không có
+  brief hợp lệ → read-only; event/state lỗi sẽ block Worker turn, không giữ grant cũ.
 - **`pre-tool-use.mjs`** (event `PreToolUse`): đọc `tool_name` + `tool_input` từ
   stdin, áp dụng policy fail-closed. Chặn = ghi reason ra stderr + exit 2 (stderr
   được feed lại cho Claude).
@@ -77,11 +78,11 @@ Hooks thực thi (port từ extension Pi):
 | `tool_call` backstop | PreToolUse → exit 2 + stderr (hoặc JSON `permissionDecision: deny`) |
 | Re-derive V3 brief mỗi `before_agent_start` | UserPromptSubmit (lưu state) + PreToolUse (đọc state) |
 | Worker branch-scoped push | PreToolUse trên `Bash`, dùng lại regex `gitAuthorityBlockReason` |
-| Reviewer luôn read-only | `permissions.deny` write/edit + hook |
+| Reviewer luôn read-only | `defaultMode: plan` + deny write/edit + hook |
 | Supervisor `create_agent` arg gate | PreToolUse trên `mcp__paseo__create_agent` |
 | MCP target allowlist (`mcpBlockReason`) | PreToolUse trên `mcp__paseo__*` |
 | Bash Paseo-CLI guard | PreToolUse trên `Bash` (`callsPaseoCli`) |
-| Disable native subagents (`[agents] enabled=false`) | `permissions.deny: ["Agent"]` + hook chặn `Agent`/`Task` |
+| Disable native subagents (`[agents] enabled=false`) | deny `Agent` + matcher/hook chặn cả `Agent`/`Task` |
 
 Khi `PASEO_CLAUDE_ROLE` unset, hook passive (không chặn) — an toàn khi load trong
 claude thường. Lead được write/edit chỉ khi `PASEO_TEAM_LEAD_WRITE=1`.
@@ -171,6 +172,12 @@ Merge [`config/paseo.providers.example.json`](./config/paseo.providers.example.j
 vào `~/.paseo/config.json`, thay `__PASEO_HOME__` và `__CLAUDE_ROLES_HOME__` bằng
 absolute path.
 
+Regression policy dùng chung từ repo root:
+
+```bash
+node test/active-policy.test.mjs
+```
+
 ## 7. Refresh Paseo
 
 Thay đổi custom provider có thể cần daemon reload/restart (restart sẽ dừng toàn
@@ -238,7 +245,7 @@ Config đặt:
 
 ```
 claude-lead        Paseo MCP đầy đủ
-claude-supervisor  Paseo MCP + hook ép allowlist 11 tool
+claude-supervisor  Paseo MCP + hook ép allowlist 5 tool
 claude-worker      không có Paseo MCP
 claude-reviewer    không có Paseo MCP
 ```

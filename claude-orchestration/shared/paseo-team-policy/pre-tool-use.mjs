@@ -4,7 +4,7 @@
  * pre-tool-use.mjs — Claude Code PreToolUse hook entry.
  *
  * Registered in each role's settings.json as:
- *   "PreToolUse": [{ "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|mcp__paseo__.*)",
+ *   "PreToolUse": [{ "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|Task|mcp__paseo__.*)",
  *                    "hooks": [{ "type": "command",
  *                                "command": "node \"${CLAUDE_CONFIG_DIR}/hooks/pre-tool-use.mjs\"" }] }]
  *
@@ -17,11 +17,12 @@
  * to load in a non-team Claude Code session.
  */
 
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { detectRole, blockReasonForTool } from "./policy.mjs";
-import { deserializeBrief, serializeBrief } from "./brief.mjs";
+import { deserializeBrief } from "./brief.mjs";
 
 /** @returns {Promise<string>} */
 function readStdin() {
@@ -41,9 +42,8 @@ function stateDir() {
 }
 
 function statePath(sessionId) {
-	// Sanitize the session id into a safe filename component.
-	const safe = String(sessionId ?? "default").replace(/[^A-Za-z0-9_-]/g, "_");
-	return path.join(stateDir(), `brief-${safe}.json`);
+	const key = createHash("sha256").update(String(sessionId ?? "default")).digest("hex");
+	return path.join(stateDir(), `brief-${key}.json`);
 }
 
 async function loadBrief(sessionId) {
@@ -85,6 +85,7 @@ async function main() {
 		brief,
 		String(event.tool_name ?? ""),
 		event.tool_input,
+		typeof event.cwd === "string" && event.cwd.length > 0 ? event.cwd : process.cwd(),
 	);
 
 	if (reason) {

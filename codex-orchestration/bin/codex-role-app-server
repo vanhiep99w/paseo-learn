@@ -53,7 +53,7 @@ case "${PASEO_MCP_ACCESS:-}" in
 			fi
 			if [[ "$PASEO_MCP_ACCESS" == "supervisor" ]]; then
 				codex_config_args+=(
-					-c 'mcp_servers.paseo.enabled_tools=["speak","create_agent","send_agent_prompt","get_agent_status","list_agents","list_workspaces","list_providers","list_models","inspect_provider","get_agent_activity","list_pending_permissions"]'
+					-c 'mcp_servers.paseo.enabled_tools=["create_agent","send_agent_prompt","get_agent_status","list_agents","get_agent_activity"]'
 				)
 			fi
 		fi

@@ -51,6 +51,23 @@ const V3_ALLOWED_FIELDS = new Set([
 	...AUTHORITY_FIELDS,
 ]);
 
+function normalizeOwnedScope(raw) {
+	if (typeof raw !== "string" || raw.trim().length === 0) return null;
+	const roots = raw.split(",").map((item) => item.trim());
+	if (roots.some((item) => item.length === 0)) return null;
+	const normalized = [];
+	for (const root of roots) {
+		if (root.includes("\0") || /^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/.test(root)) return null;
+		const parts = root.replaceAll("\\", "/").split("/").filter(
+			(part) => part !== "" && part !== ".",
+		);
+		if (parts.includes("..")) return null;
+		const value = parts.length === 0 ? "." : parts.join("/");
+		if (!normalized.includes(value)) normalized.push(value);
+	}
+	return normalized;
+}
+
 /**
  * @typedef {Object} ParsedTaskBrief
  * @property {1|2|3} version
@@ -132,6 +149,9 @@ function parseV3Brief(lines) {
 				malformed.push(`invalid ${field} value "${value}"`);
 			}
 		}
+	}
+	if (mode === "write" && normalizeOwnedScope(fields.get("OWNED_SCOPE")) === null) {
+		malformed.push("MODE: write requires a valid workspace-relative OWNED_SCOPE");
 	}
 	if (malformed.length > 0) return failClosed();
 	return { version: 3, mode, malformed, fields };
@@ -237,6 +257,19 @@ export function workerGitAuthority(brief) {
 		merge: false,
 		deploy: false,
 	};
+}
+
+/**
+ * Parse OWNED_SCOPE as a comma-separated list of workspace-relative path roots.
+ * `.` means the whole workspace. Absolute paths, parent traversal, empty items,
+ * and NUL bytes are invalid and fail closed.
+ *
+ * @param {ParsedTaskBrief | null} brief
+ * @returns {string[] | null}
+ */
+export function ownedScopeRoots(brief) {
+	if (brief === null || isLegacyBrief(brief) || brief.malformed.length > 0) return null;
+	return normalizeOwnedScope(brief.fields.get("OWNED_SCOPE"));
 }
 
 /** Reviewer is always all-false: never commit/push/merge/amend/force-push. */

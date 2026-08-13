@@ -48,7 +48,7 @@ Mỗi role có một `PI_CODING_AGENT_DIR` riêng (`~/.pi-paseo/<role>/`) chứa
 ├── AGENTS.md          # role system prompt (= developer_instructions)
 ├── settings.json      # bật extension/skill/package cho role này
 ├── mcp.json           # lead/supervisor: paseo server; worker/reviewer: không có
-├── extensions/        # → symlink paseo-team-policy.ts (shared)
+├── extensions/        # → symlink bản policy ổn định dưới $PASEO_HOME/packs/
 ├── skills/            # skill riêng của role (vd: lead có paseo-team-lead)
 ├── prompts/           # prompt template riêng của role
 ├── auth.json   ─┐
@@ -88,7 +88,8 @@ Installer:
 
 1. Tạo 4 role home trong `~/.pi-paseo`, mỗi home có `AGENTS.md`, `settings.json`,
    `mcp.json` (lead/supervisor), `skills/`, `prompts/`.
-2. Symlink `extensions/paseo-team-policy.ts` (file chung) vào mỗi role.
+2. Copy policy vào `$PASEO_HOME/packs/pi-orchestration/`, rồi symlink
+   `extensions/paseo-team-policy.ts` của mỗi role về bản cài ổn định đó.
 3. Symlink `auth.json`, `npm/`, `git/`, `models.json` về `~/.pi/agent/`.
 4. Copy launcher vào `$PASEO_HOME/bin` (mặc định `~/.paseo/bin`).
 5. Merge 4 provider vào `~/.paseo/config.json`, đặt
@@ -104,6 +105,9 @@ rồi chạy lại với `--force` (backup trước khi ghi đè).
 
 ```bash
 PI_ROLES=~/.pi-paseo
+PI_POLICY=~/.paseo/packs/pi-orchestration/paseo-team-policy.ts
+mkdir -p "$(dirname "$PI_POLICY")"
+cp pi-orchestration/shared/paseo-team-policy.ts "$PI_POLICY"
 for role in lead worker reviewer supervisor; do
   mkdir -p $PI_ROLES/$role/{extensions,skills,prompts}
   cp pi-orchestration/profiles/$role/AGENTS.md        $PI_ROLES/$role/
@@ -111,7 +115,7 @@ for role in lead worker reviewer supervisor; do
   [ -f pi-orchestration/profiles/$role/mcp.json ] && \
     cp pi-orchestration/profiles/$role/mcp.json       $PI_ROLES/$role/
   cp -R pi-orchestration/profiles/$role/skills/.      $PI_ROLES/$role/skills/ 2>/dev/null || true
-  ln -sf "$(pwd)/pi-orchestration/shared/paseo-team-policy.ts" $PI_ROLES/$role/extensions/
+  ln -sf "$PI_POLICY" $PI_ROLES/$role/extensions/paseo-team-policy.ts
   ln -sf ~/.pi/agent/auth.json   $PI_ROLES/$role/auth.json
   ln -sf ~/.pi/agent/npm         $PI_ROLES/$role/npm
   ln -sf ~/.pi/agent/git         $PI_ROLES/$role/git
@@ -149,6 +153,9 @@ PI_CODING_AGENT_DIR=~/.pi-paseo/lead pi --version
 paseo provider ls --json
 paseo provider models pi-lead --json
 paseo provider models pi-worker --json
+
+# Regression active packs (scope, turn authority, MCP parity, stable install)
+node test/active-policy.test.mjs
 
 # Extension load (passive, không cần LLM) — chạy pi với role unset
 pi -e ./shared/paseo-team-policy.ts --version

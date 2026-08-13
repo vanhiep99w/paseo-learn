@@ -3,23 +3,14 @@
 /**
  * user-prompt-submit.mjs — Claude Code UserPromptSubmit hook entry.
  *
- * Registered in each role's settings.json as:
- *   "UserPromptSubmit": [{ "hooks": [{ "type": "command",
- *                                      "command": "node \"${CLAUDE_CONFIG_DIR}/hooks/user-prompt-submit.mjs\"" }] }]
- *
- * This is the Claude Code analog of the Pi extension's `before_agent_start`
- * brief re-parse. Every user prompt (including each `send_agent_prompt` from
- * the Lead, and the initial create_agent prompt) fires this hook. We parse the
- * strict V3 marker block out of the prompt and persist it to a per-session
- * state file; pre-tool-use.mjs reads it to derive the worker's authority for
- * the current turn. This makes write authority non-sticky across turns — a turn
- * without a valid V3 brief resolves read-only.
- *
- * The hook never blocks; it only records state. (Parsing failures are stored as
- * a malformed brief → read-only downstream.)
+ * The Worker authority state is replaced atomically on every submitted prompt.
+ * A prompt without a valid V3 brief records read-only state. If the hook cannot
+ * parse its event or persist the replacement state, it blocks that Worker turn
+ * (exit 2) instead of leaving an earlier write grant active.
  */
 
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseTaskBrief, serializeBrief } from "./brief.mjs";
@@ -42,38 +33,59 @@ function stateDir() {
 }
 
 function statePath(sessionId) {
-	const safe = String(sessionId ?? "default").replace(/[^A-Za-z0-9_-]/g, "_");
-	return path.join(stateDir(), `brief-${safe}.json`);
+	const key = createHash("sha256").update(String(sessionId ?? "default")).digest("hex");
+	return path.join(stateDir(), `brief-${key}.json`);
+}
+
+async function storeBrief(sessionId, brief) {
+	const dir = stateDir();
+	const target = statePath(sessionId);
+	const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
+	await mkdir(dir, { recursive: true, mode: 0o700 });
+	try {
+		await writeFile(temp, `${JSON.stringify(serializeBrief(brief))}\n`, {
+			encoding: "utf8",
+			mode: 0o600,
+			flag: "wx",
+		});
+		await rename(temp, target);
+	} finally {
+		await rm(temp, { force: true }).catch(() => {});
+	}
 }
 
 async function main() {
-	const raw = await readStdin();
-	let event = {};
-	try {
-		event = raw.trim() ? JSON.parse(raw) : {};
-	} catch {
-		// Cannot read the prompt — leave existing state untouched and allow.
+	// Only Worker authority is turn-scoped. Avoid making unrelated roles depend
+	// on writable temporary storage.
+	if (process.env.PASEO_CLAUDE_ROLE?.trim().toLowerCase() !== "worker") {
 		process.exit(0);
 	}
 
-	// Claude Code UserPromptSubmit payload carries the submitted text in `prompt`.
-	const prompt = typeof event.prompt === "string" ? event.prompt : "";
-	const brief = parseTaskBrief(prompt);
-	const sessionId = event.session_id ?? "default";
+	const raw = await readStdin();
+	let event;
+	try {
+		event = raw.trim() ? JSON.parse(raw) : null;
+	} catch {
+		process.stderr.write(
+			"paseo-team-policy: invalid UserPromptSubmit event; blocking Worker turn fail-closed.\n",
+		);
+		process.exit(2);
+	}
+	if (typeof event !== "object" || event === null || typeof event.session_id !== "string") {
+		process.stderr.write(
+			"paseo-team-policy: UserPromptSubmit event has no session_id; blocking Worker turn fail-closed.\n",
+		);
+		process.exit(2);
+	}
 
-	await mkdir(stateDir(), { recursive: true });
-	await writeFile(
-		statePath(sessionId),
-		`${JSON.stringify(serializeBrief(brief))}\n`,
-		"utf8",
-	);
+	const prompt = typeof event.prompt === "string" ? event.prompt : "";
+	await storeBrief(event.session_id, parseTaskBrief(prompt));
 	process.exit(0);
 }
 
 main().catch((error) => {
-	// Recording state must never block the agent.
 	process.stderr.write(
-		`paseo-team-policy (user-prompt-submit): ${error?.message ?? error}\n`,
+		`paseo-team-policy (user-prompt-submit): could not replace Worker authority state; turn blocked: ${error?.message ?? error}\n`,
 	);
-	process.exit(0);
+	process.exit(2);
 });

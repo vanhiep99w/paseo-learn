@@ -22,7 +22,7 @@ A role home contains:
 ├── AGENTS.md        # role system prompt (Pi loads it as global context)
 ├── settings.json    # enables extensions/skills/packages for this role
 ├── mcp.json         # lead/supervisor: the paseo server; worker/reviewer: absent
-├── extensions/      # → symlink to shared/paseo-team-policy.ts
+├── extensions/      # → symlink to stable $PASEO_HOME/packs/pi-orchestration copy
 ├── skills/          # role-specific skills (lead ships paseo-team-lead)
 ├── prompts/         # role-specific prompt templates
 ├── auth.json   ─┐
@@ -45,20 +45,22 @@ Role behavior sources:
 | Role | System prompt | Enforcement |
 |---|---|---|
 | lead | `pi-orchestration/profiles/lead/AGENTS.md` | `read`/`bash` + full Paseo MCP + `mcp`/`mcp_script`; write/edit only if `PASEO_TEAM_LEAD_WRITE=1` |
-| worker | `pi-orchestration/profiles/worker/AGENTS.md` | `read`/`write`/`edit`/`bash` when the V3 brief grants it; no MCP |
-| reviewer | `pi-orchestration/profiles/reviewer/AGENTS.md` | always `read`/`bash` only (write/edit revoked); no MCP |
+| worker | `pi-orchestration/profiles/worker/AGENTS.md` | read-only turn: `read` only; write turn: `read`/`write`/`edit`/`bash`; direct mutations confined to `OWNED_SCOPE`; no MCP |
+| reviewer | `pi-orchestration/profiles/reviewer/AGENTS.md` | strictly `read` only (write/edit/bash revoked); no MCP |
 | supervisor | `pi-orchestration/profiles/supervisor/AGENTS.md` | `read` + `mcp` filtered by `includeTools`; no write/edit |
 
 ## The hard enforcement layer: paseo-team-policy.ts
 
 Unlike the Codex pack, Pi adds a **shared TypeScript extension** that hard-enforces
-role policy: `pi-orchestration/shared/paseo-team-policy.ts` (symlinked into every
-role's `extensions/`). It reads `PASEO_PI_ROLE` from the provider env and:
+role policy: `pi-orchestration/shared/paseo-team-policy.ts`. The installer copies
+it to a stable `$PASEO_HOME/packs/pi-orchestration/` path and links every role's
+`extensions/` entry there. It reads `PASEO_PI_ROLE` from the provider env and:
 
 - applies a per-role tool allowlist via `setActiveTools()` on `session_start` and
   `before_agent_start`;
 - re-derives Worker authority from the **current turn's** V3 brief every turn
-  (`parseTaskBrief`, `resolveWorkerMode`, `workerGitAuthority`);
+  (`parseTaskBrief`, `resolveWorkerMode`, `workerGitAuthority`) and canonicalizes
+  direct mutation paths against `OWNED_SCOPE` (`ownedScopeBlockReason`);
 - acts as a fail-closed `tool_call` backstop: blocks Worker/Reviewer `mcp` and
   `mcp_script`, classifies MCP proxy targets (`classifyMcpInput`, `mcpBlockReason`),
   gates the Supervisor's single `create_agent` recovery shape
@@ -66,10 +68,10 @@ role's `extensions/`). It reads `PASEO_PI_ROLE` from the provider env and:
   tool references, blocks the Paseo CLI from bash, and enforces git authority
   (`gitAuthorityBlockReason` — branch-scoped push, always-deny force-push/amend/merge).
 
-Key exported symbols (pure, unit-testable): `parseTaskBrief`,
-`resolveWorkerMode`, `workerGitAuthority`, `gitAuthorityBlockReason`,
-`policyFor`, `policyWithAuthority`, `classifyMcpInput`, `mcpBlockReason`,
-`supervisorCreateAgentBlockReason`. The extension deliberately does **not** inject
+Key exported symbols (pure/testable): `parseTaskBrief`, `ownedScopeRoots`,
+`resolveWorkerMode`, `workerGitAuthority`, `ownedScopeBlockReason`,
+`gitAuthorityBlockReason`, `policyFor`, `policyWithAuthority`,
+`classifyMcpInput`, `mcpBlockReason`, `supervisorCreateAgentBlockReason`. The extension deliberately does **not** inject
 the role prompt (the role `AGENTS.md` context file does that); it only restricts.
 
 Debug commands registered by the extension: `/team-role` (role + workerMode +
@@ -92,16 +94,18 @@ The role's own `mcp.json` consumes the URL by interpolation
 (`"url": "${PASEO_MCP_URL}"`). Because Worker/Reviewer have **no** `paseo` entry
 in their `mcp.json`, the launcher gives them nothing to reach even though the
 `mcp` proxy tool exists. The Supervisor's `mcp.json`
-(`pi-orchestration/profiles/supervisor/mcp.json`) adds an `includeTools` allowlist
-of 11 tools — the same monitoring set the Codex launcher uses.
+(`pi-orchestration/profiles/supervisor/mcp.json`) adds the same five-tool
+monitoring/recovery allowlist enforced by the extension and Codex launcher.
 
 ## Install
 
 `pi-orchestration/install.mjs` (run via `./install pi`):
 
-1. Creates four role homes; copies each role's `AGENTS.md`, `settings.json`,
-   `mcp.json` (lead/supervisor); mirrors `skills/` and `prompts/`.
-2. Symlinks `shared/paseo-team-policy.ts` into each role's `extensions/`.
+1. Copies the policy to the stable installed path
+   `$PASEO_HOME/packs/pi-orchestration/paseo-team-policy.ts`.
+2. Creates four role homes; copies each role's `AGENTS.md`, `settings.json`,
+   `mcp.json` (lead/supervisor), mirrors `skills/`/`prompts/`, and links each
+   role extension to that stable installed policy copy.
 3. Symlinks `auth.json`, `npm/`, `git/`, `models.json` from `~/.pi/agent/` so all
    roles share credentials, the `pi-mcp-adapter` package, and the model catalog.
 4. Copies the launcher to `$PASEO_HOME/bin/pi-role-app-server` (mode 0755).
@@ -118,8 +122,8 @@ of 11 tools — the same monitoring set the Codex launcher uses.
 - **Change role behavior:** edit `pi-orchestration/profiles/<role>/AGENTS.md` (the
   system prompt) and/or the policy tables in
   `pi-orchestration/shared/paseo-team-policy.ts`. Validate with
-  `node --check pi-orchestration/shared/paseo-team-policy.ts`, then `/team-role`
-  inside an agent.
+  `node --check pi-orchestration/shared/paseo-team-policy.ts` and
+  `node test/active-policy.test.mjs`, then `/team-role` inside an agent.
 - **Add a role skill:** drop it under `pi-orchestration/profiles/<role>/skills/`
   and re-run `./install pi`. Confirm with
   `PI_CODING_AGENT_DIR=~/.pi-paseo/<role> pi`.
@@ -129,6 +133,10 @@ of 11 tools — the same monitoring set the Codex launcher uses.
 - **Worker/Reviewer still "see" the `mcp` tool:** that is expected — Pi's adapter
   registers it regardless. The extension blocks every `mcp`/`mcp_script` call for
   them, and their `mcp.json` has no server to reach. `/team-tools` confirms it.
+- **Read-only turns:** Reviewer and read-only Worker get `read` only; Bash is
+  removed so it cannot mutate indirectly. On write turns, direct `write`/`edit`
+  paths are canonicalized against `OWNED_SCOPE`; Bash still remains a behavioral
+  boundary rather than filesystem isolation.
 - **No sandbox:** Pi has none. Full access + extension + `includeTools` are
   behavioral boundaries, not ACLs (see [../architecture.md](../architecture.md#capability-is-not-authority)).
 - **End-to-end not yet exercised:** this pack is uncommitted and has not been run

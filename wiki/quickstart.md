@@ -107,6 +107,7 @@ the narrowest non-destructive check; broader checks are noted.
 | Add a per-role skill (Pi) | [packs/pi-orchestration.md](packs/pi-orchestration.md#per-role-resources) | `pi-orchestration/profiles/<role>/skills/` | `PI_CODING_AGENT_DIR=~/.pi-paseo/<role> pi` → skill appears in `/skill:` |
 | Add a per-role skill (Claude) | [packs/claude-orchestration.md](packs/claude-orchestration.md) | `claude-orchestration/profiles/<role>/skills/` | `CLAUDE_CONFIG_DIR=~/.claude-paseo/<role> claude` → skill loads |
 | Fix/extend model routing (reference pack) | [packs/reference-pack.md](packs/reference-pack.md) | `tai-lieu-tham-khao/scripts/model-routing.mjs` | `node tai-lieu-tham-khao/test/model-routing.test.mjs` |
+| Change active Pi/Claude policy or supervisor parity | [architecture.md](architecture.md) | `pi-orchestration/shared/paseo-team-policy.ts`, `claude-orchestration/shared/paseo-team-policy/` | `node test/active-policy.test.mjs` |
 | Change policy enforcement (reference pack) | [packs/reference-pack.md](packs/reference-pack.md) | `tai-lieu-tham-khao/extensions/paseo-team-policy.ts` | `node tai-lieu-tham-khao/test/policy.test.mts` |
 | Run the whole reference test suite | [packs/reference-pack.md](packs/reference-pack.md#tests-and-ci) | `tai-lieu-tham-khao/test/` | `node test/policy.test.mts && node test/model-routing.test.mjs` |
 

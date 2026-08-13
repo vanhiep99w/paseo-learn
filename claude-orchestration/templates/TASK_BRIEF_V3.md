@@ -24,7 +24,7 @@ AGENT_REF:
 EXPECTED_BASE_SHA: <sha>                              # writer preconditions
 ASSIGNED_CANDIDATE_SHA: <sha>                         # reviewer only; exact
 
-OWNED_SCOPE: <files>
+OWNED_SCOPE: <workspace-relative-root>, <another-root>  # `.` means whole workspace
 EXCLUDED_SCOPE: <files>
 
 EDIT_AUTHORITY: allowed | denied                      # default: follows MODE
@@ -66,6 +66,11 @@ TASK_BODY_END
   evidence — not the solution.
 - `MODE: write` is necessary but not sufficient for write/edit: an explicit
   `EDIT_AUTHORITY: denied` strips write/edit even on a write-mode turn.
+- `OWNED_SCOPE` is a comma-separated list of workspace-relative path roots;
+  absolute paths, `..`, empty items, and missing scope make a write brief fail
+  closed to read-only. Direct file mutation tools are canonicalized (including symlinks) and blocked outside
+  these roots. Shell commands on write turns remain a behavioral boundary, not
+  filesystem isolation.
 - `COMMIT_AUTHORITY` and `PUSH_TASK_BRANCH_AUTHORITY` are denied by default;
   grant them only when the task truly needs a stable SHA (e.g. cross-host
   review).

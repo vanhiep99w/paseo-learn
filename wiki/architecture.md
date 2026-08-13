@@ -97,6 +97,13 @@ Fail-closed rules enforced by `pi-orchestration/shared/paseo-team-policy.ts`
 and `commit --amend` are always blocked. (See the policy extension's
 `gitAuthorityBlockReason`.)
 
+`OWNED_SCOPE` is a comma-separated list of workspace-relative path roots (`.`
+means the whole workspace). Pi and Claude policy layers canonicalize direct file
+mutation targets, including symlinks, and block paths outside those roots.
+Read-only Pi Workers/Reviewers have no Bash; read-only Claude Workers have shell
+calls hook-blocked, while Claude Reviewers run in plan mode. Bash on an authorized
+write turn is still a behavioral boundary, not filesystem isolation.
+
 A follow-up `send_agent_prompt` that needs authority must **repeat the full
 brief**; a plain correction message silently downgrades the Worker to read-only
 for that turn, by design.
@@ -159,8 +166,9 @@ model catalogs are host-specific. The mandatory cycle (see the Lead skill,
 The Lead owns **observed** routing evidence; Workers only echo the `ASSIGNED_*`
 fields and escalate `MODEL_MISMATCH` if they detect a discrepancy — they never
 report invented `OBSERVED_*` values and never change their own model. For its own
-runtime identity, a Pi agent inspects the bash-tool env `PI_PROVIDER` /
-`PI_MODEL` / `PI_REASONING_LEVEL` rather than guessing from a prompt.
+runtime identity, a write-mode Pi agent can inspect the bash-tool env
+`PI_PROVIDER` / `PI_MODEL` / `PI_REASONING_LEVEL`; read-only turns report that
+runtime verification was unavailable rather than guessing.
 
 Three silent-fallback traps this design guards against (documented in
 `docs/model-routing.md`): Paseo silently clamping an invalid thinking level to

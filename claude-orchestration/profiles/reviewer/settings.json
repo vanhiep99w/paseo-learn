@@ -1,7 +1,7 @@
 {
-  "$comment": "Reviewer role. Behaviorally read-only: the write/edit tools are denied in permissions AND blocked by the PreToolUse hook. Bash is kept for read-only inspection (git log, tests, greps); the hook blocks any git commit/push/merge/amend/force-push with REVIEWER_AUTHORITY (all false). No paseo MCP. Native Agent tool + web denied.",
+  "$comment": "Reviewer role. Claude Code plan mode plus explicit write/edit denials enforce read-only inspection; the hook additionally blocks git mutations and Paseo CLI use. No paseo MCP. Native Agent/Task tools + web denied.",
   "permissions": {
-    "defaultMode": "bypassPermissions",
+    "defaultMode": "plan",
     "deny": [
       "Agent",
       "Edit",
@@ -16,7 +16,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|mcp__paseo__.*)",
+        "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|Task|mcp__paseo__.*)",
         "hooks": [
           {
             "type": "command",

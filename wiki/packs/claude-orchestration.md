@@ -44,9 +44,9 @@ Role behavior sources:
 | Role | System prompt | Enforcement |
 |---|---|---|
 | lead | `profiles/lead/CLAUDE.md` | full access + `mcp__paseo__*`; write/edit only if `PASEO_TEAM_LEAD_WRITE=1` |
-| worker | `profiles/worker/CLAUDE.md` | Edit/Write/Bash authority from the current-turn V3 brief (hook); no MCP |
-| reviewer | `profiles/reviewer/CLAUDE.md` | always read-only (`permissions.deny` write/edit + hook); Bash for inspection only; no MCP |
-| supervisor | `profiles/supervisor/CLAUDE.md` | Read + `mcp__paseo__*` filtered to 11 tools (hook); no shell, no write/edit |
+| worker | `profiles/worker/CLAUDE.md` | shell disabled on read-only turns; direct mutations require write authority and `OWNED_SCOPE`; no MCP |
+| reviewer | `profiles/reviewer/CLAUDE.md` | Claude plan mode + explicit write/edit denial + hook; no MCP |
+| supervisor | `profiles/supervisor/CLAUDE.md` | Read + `mcp__paseo__*` filtered to five monitoring/recovery tools; no shell or writes |
 
 ## The hard enforcement layer: policy hooks
 
@@ -58,10 +58,10 @@ copied into each role's `hooks/`. Each role's `settings.json` registers:
 - **`UserPromptSubmit`** → `hooks/user-prompt-submit.mjs`: parses the V3 Task
   Brief out of the current prompt and persists it to a per-session state file
   (the Claude Code analog of the Pi extension's `before_agent_start` re-parse).
-  Write authority is therefore re-derived every turn and never leaks across
-  turns.
+  State replacement is atomic. A malformed hook event or state-write failure
+  blocks the Worker turn, so old write authority cannot leak into it.
 - **`PreToolUse`** (matcher
-  `(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|mcp__paseo__.*)`)
+  `(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|Task|mcp__paseo__.*)`)
   → `hooks/pre-tool-use.mjs`: reads `tool_name` + `tool_input` from stdin and
   decides fail-closed. A denial writes the reason to stderr and exits 2 (stderr
   is fed back to the model).
@@ -70,21 +70,25 @@ The hooks enforce (ported from `paseo-team-policy.ts`):
 
 - per-role tool policy (worker write only with brief; reviewer/supervisor
   read-only; lead write only with `PASEO_TEAM_LEAD_WRITE=1`);
+- read-only Worker turns have no shell; direct file mutation paths on write turns
+  are canonicalized (including symlinks) and confined to `OWNED_SCOPE`;
 - Worker git authority from the current V3 brief — branch-scoped push
   (`git push -u origin HEAD:refs/heads/agent/<TASK_ID>`), always-deny
   force-push/amend/merge/deploy;
-- Reviewer always read-only (git mutations blocked);
-- Supervisor no shell; `mcp__paseo__*` limited to the 11-tool monitoring
-  allowlist plus a gated `create_agent` (claude-lead recovery shape only,
+- Reviewer uses Claude Code plan mode with explicit write/edit denials, while the
+  hook independently blocks Git mutations;
+- Supervisor no shell; `mcp__paseo__*` limited to the five-tool monitoring/
+  recovery allowlist, including gated `create_agent` (claude-lead recovery shape only,
   argument-checked);
 - worker/reviewer cannot call `mcp__paseo__*` (no control plane);
 - native `Agent`/`Task` subagents blocked for every role (Paseo is the only
   control plane);
 - bash Paseo-CLI guard (`paseo run`/`send`/`wait` blocked for worker/reviewer).
 
-Key exported symbols (pure, unit-testable): `parseTaskBrief`,
-`resolveWorkerMode`, `workerGitAuthority`, `gitAuthorityBlockReason`,
-`supervisorCreateAgentBlockReason`, `blockReasonForTool`, `detectRole`. When
+Key exported symbols (pure/testable): `parseTaskBrief`, `ownedScopeRoots`,
+`resolveWorkerMode`, `workerGitAuthority`, `ownedScopeBlockReason`,
+`gitAuthorityBlockReason`, `supervisorCreateAgentBlockReason`,
+`blockReasonForTool`, `detectRole`. When
 `PASEO_CLAUDE_ROLE` is unset the hook is passive (exit 0).
 
 The one loss vs the Pi extension: hooks cannot enumerate the tool registry
@@ -109,8 +113,8 @@ Worker/Reviewer use plain `claude`. The launcher mirrors `pi-role-app-server` /
 5. `exec claude <args> "$@"`, forwarding Paseo's Agent SDK / headless args.
 
 Because Worker/Reviewer providers use `command: ["claude"]` (no launcher), they
-get no `--mcp-config` and therefore no Paseo MCP server. The Supervisor's 11-tool
-allowlist is enforced by the `PreToolUse` hook (Claude Code's MCP config has no
+get no `--mcp-config` and therefore no Paseo MCP server. The Supervisor's
+five-tool allowlist is enforced by the `PreToolUse` hook (Claude Code's MCP config has no
 per-tool `includeTools` field, unlike Pi's `mcp.json`).
 
 ## Install
@@ -137,18 +141,20 @@ per-tool `includeTools` field, unlike Pi's `mcp.json`).
 - **Change role behavior:** edit `claude-orchestration/profiles/<role>/CLAUDE.md`
   (the system prompt) and/or the policy in
   `claude-orchestration/shared/paseo-team-policy/policy.mjs`. Validate with
-  `node --check` on the hooks, then re-run `./install claude`.
+  `node --check` on the hooks plus `node test/active-policy.test.mjs`, then
+  re-run `./install claude`.
 - **Add a role skill:** drop it under `claude-orchestration/profiles/<role>/skills/`
   and re-run `./install claude`. Confirm with
   `CLAUDE_CONFIG_DIR=~/.claude-paseo/<role> claude`.
 - **Change Supervisor's exposed tools:** edit the `SUPERVISOR_ALLOWED_MCP_TARGETS`
-  list in `policy.mjs` (the hook enforces it). The codex/pi supervisor lists are
-  the reference (11 tools).
+  list in `policy.mjs` (the hook enforces it). Keep the Codex launcher and Pi
+  supervisor `mcp.json` at the same five-tool contract.
 - **Worker/Reviewer "see" `mcp__paseo__*`:** they should not — their provider
   gets no `--mcp-config`. If they do, it is a project `.mcp.json` (not this
   pack); the hook still blocks `mcp__paseo__*` for them fail-closed.
-- **No sandbox:** Claude Code has none (full access + `bypassPermissions`).
-  Hooks + `permissions.deny` are behavioral boundaries, not ACLs (see
+- **No filesystem sandbox:** Lead/Worker use `bypassPermissions`; Reviewer uses
+  Claude Code plan mode. Hooks + `permissions.deny` are behavioral boundaries,
+  not OS-level ACLs (see
   [../architecture.md](../architecture.md#capability-is-not-authority)).
 - **Live verification outstanding:** the enforcement logic is smoke-tested; the
   real Lead→Worker→Reviewer flow under Paseo is not yet exercised (claude

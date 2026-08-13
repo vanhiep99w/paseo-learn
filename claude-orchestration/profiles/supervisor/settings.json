@@ -1,5 +1,5 @@
 {
-  "$comment": "Supervisor role. Observe-only via the Paseo MCP allowlist + Read. Shell and write/edit tools are denied in permissions AND blocked by the PreToolUse hook. The paseo MCP server is injected by claude-role-app-server; the hook enforces the 11-tool monitoring allowlist plus the gated create_agent (claude-lead recovery only). Native Agent tool + web denied.",
+  "$comment": "Supervisor role. Observe-only via Read plus the five-tool Paseo MCP monitoring/recovery allowlist. Shell and write/edit tools are denied and hook-blocked. create_agent is gated to claude-lead recovery. Native Agent/Task tools + web denied.",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "deny": [
@@ -18,7 +18,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|mcp__paseo__.*)",
+        "matcher": "(Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|Task|mcp__paseo__.*)",
         "hooks": [
           {
             "type": "command",

@@ -7,6 +7,8 @@
  *   - each role gets its own PI_CODING_AGENT_DIR under ~/.pi-paseo/<role>/,
  *     holding role-specific AGENTS.md (system prompt), settings.json, mcp.json,
  *     skills/, prompts/ and a symlinked policy extension;
+ *   - the policy extension is first copied into a stable path under PASEO_HOME,
+ *     so installed roles do not depend on the source checkout remaining put;
  *   - credentials and the package store (auth.json, npm/, git/, models.json)
  *     are symlinked from ~/.pi/agent so every role shares auth and the
  *     pi-mcp-adapter package, while keeping role resources isolated;
@@ -67,6 +69,12 @@ const rolesHome = path.resolve(
 );
 const paseoBin = path.join(paseoHome, "bin");
 const targetLauncher = path.join(paseoBin, "pi-role-app-server");
+const installedSharedExt = path.join(
+	paseoHome,
+	"packs",
+	"pi-orchestration",
+	"paseo-team-policy.ts",
+);
 const targetSharedExt = "paseo-team-policy.ts";
 const paseoConfigPath = path.join(paseoHome, "config.json");
 const preferencesPath = path.join(paseoHome, "orchestration-preferences.json");
@@ -229,8 +237,8 @@ async function walkSync(source, target) {
  * Create a symlink target -> source, failing closed if a different link/file
  * occupies target (unless --force). source must already exist.
  */
-async function installSymlink(source, target, label) {
-	if (!(await exists(source))) {
+async function installSymlink(source, target, label, allowMissingSource = false) {
+	if (!(await exists(source)) && !allowMissingSource) {
 		console.log(`symlink skipped (${label} missing): ${source}`);
 		return;
 	}
@@ -288,11 +296,13 @@ async function installRole(role) {
 		}
 	}
 
-	// Shared policy extension lives in one place; symlink it into the role.
+	// Every role links to the stable installed copy, never to the source checkout.
+	// allowMissingSource keeps --dry-run accurate before that copy exists.
 	await installSymlink(
-		sourceSharedExt,
+		installedSharedExt,
 		path.join(roleHome, "extensions", targetSharedExt),
 		"policy extension",
+		dryRun,
 	);
 
 	// Shared credential + package store + model catalog: symlinked so every
@@ -360,6 +370,9 @@ async function main() {
 	for (const problem of problems) {
 		console.warn(`warning: ${problem}`);
 	}
+
+	console.log(`\n== shared policy ==`);
+	await installOwnedFile(sourceSharedExt, installedSharedExt, 0o600);
 
 	for (const role of roles) {
 		console.log(`\n== role: ${role} ==`);
