@@ -1,9 +1,13 @@
 {
   "$comment": "Supervisor role resources. The Paseo MCP server in mcp.json is filtered through includeTools (monitoring + recovery-gated create_agent). The policy extension further enforces the create_agent shape and keeps tools to the observe set.",
-  "packages": ["npm:pi-mcp-adapter"],
   "extensions": ["./extensions/paseo-team-policy.ts"],
   "skills": ["./skills"],
   "prompts": ["./prompts"],
   "defaultProjectTrust": "never",
-  "enableSkillCommands": true
+  "enableSkillCommands": true,
+  "packages": [
+    "npm:pi-mcp-adapter",
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "git:github.com/vanhiep99w/pi-learn"
+  ]
 }
