@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -10,9 +10,14 @@ const valid = parseTaskBrief(`PASEO_TEAM_TASK_V3_BEGIN\nTASK_ID: T-CODEX\nMODE: 
 assert.equal(process.env.PASEO_CODEX_ROLE, undefined);
 process.env.PASEO_CODEX_ROLE = "worker"; assert.equal(detectRole(), "worker");
 assert.match(blockReasonForTool("worker", null, "Bash", { command: "echo x" }, repo), /read-only/);
-assert.match(blockReasonForTool("reviewer", valid, "apply_patch", { command: "*** Update File: README.md" }, repo), /read-only/);
+assert.match(blockReasonForTool("reviewer", valid, "apply_patch", { command: "*** Begin Patch\n*** Update File: README.md\n*** End Patch" }, repo), /read-only/);
+assert.match(blockReasonForTool("reviewer", valid, "Bash", { command: "ls" }, repo), /read-only/);
 assert.match(ownedScopeBlockReason(valid, "README.md", repo), /outside OWNED_SCOPE/);
-assert.equal(blockReasonForTool("worker", valid, "apply_patch", { command: "*** Update File: test/new.mjs" }, repo), null);
+assert.equal(blockReasonForTool("worker", valid, "apply_patch", { command: "*** Begin Patch\n*** Update File: test/new.mjs\n*** End Patch" }, repo), null);
+assert.match(blockReasonForTool("worker", valid, "apply_patch", { command: "*** Begin Patch\n*** Update File: test/new.mjs\n*** Update File: README.md\n*** End Patch" }, repo), /outside OWNED_SCOPE/);
+assert.equal(blockReasonForTool("lead", null, "mcp__paseo__list_agents", {}, repo), null);
+assert.match(blockReasonForTool("lead", null, "mcp__paseo__evil_list_agents", {}, repo), /not in the Lead MCP allowlist/);
+assert.match(blockReasonForTool("supervisor", null, "mcp__paseo__evil_list_agents", {}, repo), /only call monitoring/);
 assert.match(gitAuthorityBlockReason("git push origin main", { pushTaskBranch: true }, "T-CODEX"), /branch-scoped/);
 assert.equal(gitAuthorityBlockReason("git push -u origin HEAD:refs/heads/agent/T-CODEX", { pushTaskBranch: true }, "T-CODEX"), null);
 assert.match(supervisorCreateAgentBlockReason({ provider: "codex-worker/x", labels: { purpose: "recovery", recovery_for: "p" }, settings: { thinkingOptionId: "high" } }), /codex-lead/);
@@ -22,4 +27,9 @@ const run = (name, event) => spawnSync(process.execPath, [path.join(repo, "codex
 assert.equal(run("user-prompt-submit.mjs", { session_id: "s", prompt: "plain" }).status, 0);
 const denied = run("pre-tool-use.mjs", { session_id: "s", cwd: repo, tool_name: "Bash", tool_input: { command: "git push origin main" } });
 assert.equal(denied.status, 0); assert.match(denied.stdout, /permissionDecision.*deny/);
+const installRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-"));
+const outside = path.join(installRoot, "outside.toml"); writeFileSync(outside, "sentinel");
+const codexHome = path.join(installRoot, "codex"); mkdirSync(codexHome); symlinkSync(outside, path.join(codexHome, "paseo-lead.config.toml"));
+const install = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs"), "--dry-run", "--force"], { env: { ...process.env, CODEX_HOME: codexHome, PASEO_HOME: path.join(installRoot, "paseo"), PASEO_CODEX_ROLES_HOME: path.join(installRoot, "roles") }, encoding: "utf8" });
+assert.equal(install.status, 1); assert.match(install.stderr, /symlink target/); assert.equal(readFileSync(outside, "utf8"), "sentinel");
 console.log("[codex-policy] tests passed");

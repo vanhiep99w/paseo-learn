@@ -101,10 +101,7 @@ export const SUPERVISOR_ALLOWED_MCP_TARGETS = [
  * @returns {boolean}
  */
 export function matchesPaseoToolName(name, known) {
-	return (
-		known.includes(name) ||
-		known.some((t) => name.endsWith(`_${t}`) || name.endsWith(`:${t}`))
-	);
+	return known.includes(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,18 +249,20 @@ function pathIsWithin(root, target) {
 	return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-function writeTarget(toolName, input) {
+function writeTargets(toolName, input) {
 	if (typeof input !== "object" || input === null) return null;
 	const rec = /** @type {Record<string, unknown>} */ (input);
+	if (toolName === "apply_patch") {
+		if (typeof rec.command !== "string" || !/^\s*\*\*\* Begin Patch\b/.test(rec.command) || !/\*\*\* End Patch\s*$/.test(rec.command)) return null;
+		const targets = [...rec.command.matchAll(/^\*\*\* (?:Update|Add|Delete) File: ([^\n]+)$/gm)].map((match) => match[1].trim());
+		if (targets.length === 0 || targets.some((target) => target.length === 0)) return null;
+		return targets;
+	}
 	const keys = toolName === "NotebookEdit"
 		? ["notebook_path", "file_path", "path"]
 		: ["file_path", "path", "notebook_path"];
-	if (toolName === "apply_patch" && typeof rec.command === "string") {
-		const match = rec.command.match(/\*\*\* (?:Update|Add|Delete) File: ([^\n]+)/);
-		return match?.[1]?.trim() ?? null;
-	}
 	for (const key of keys) {
-		if (typeof rec[key] === "string" && rec[key].trim().length > 0) return rec[key];
+		if (typeof rec[key] === "string" && rec[key].trim().length > 0) return [rec[key]];
 	}
 	return null;
 }
@@ -271,24 +270,20 @@ function writeTarget(toolName, input) {
 /** Enforce direct file mutations against workspace-relative OWNED_SCOPE roots. */
 export function ownedScopeBlockReason(brief, targetPath, cwd) {
 	const roots = ownedScopeRoots(brief);
-	if (roots === null) {
-		return "OWNED_SCOPE is missing or invalid. Use a comma-separated list of workspace-relative path roots (or . for the whole workspace).";
-	}
-	if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
-		return "The write tool did not provide a verifiable file path; refusing outside-scope mutation fail-closed.";
-	}
+	if (roots === null) return "OWNED_SCOPE is missing or invalid. Use a comma-separated list of workspace-relative path roots (or . for the whole workspace).";
+	const targets = Array.isArray(targetPath) ? targetPath : [targetPath];
+	if (targets.length === 0 || targets.some((target) => typeof target !== "string" || target.trim().length === 0)) return "The write tool did not provide verifiable file paths; refusing outside-scope mutation fail-closed.";
 	const workspace = canonicalPath(cwd);
-	const target = canonicalPath(path.resolve(cwd, targetPath));
-	if (!pathIsWithin(workspace, target)) {
-		return `Write target "${targetPath}" resolves outside the assigned workspace.`;
+	for (const targetPath of targets) {
+		const target = canonicalPath(path.resolve(cwd, targetPath));
+		if (!pathIsWithin(workspace, target)) return `Write target "${targetPath}" resolves outside the assigned workspace.`;
+		const allowed = roots.some((root) => {
+			const scopeRoot = canonicalPath(path.resolve(cwd, root));
+			return pathIsWithin(workspace, scopeRoot) && pathIsWithin(scopeRoot, target);
+		});
+		if (!allowed) return `Write target "${targetPath}" is outside OWNED_SCOPE (${roots.join(", ")}). Report a REOPEN_REQUEST to the Lead.`;
 	}
-	const allowed = roots.some((root) => {
-		const scopeRoot = canonicalPath(path.resolve(cwd, root));
-		return pathIsWithin(workspace, scopeRoot) && pathIsWithin(scopeRoot, target);
-	});
-	return allowed
-		? null
-		: `Write target "${targetPath}" is outside OWNED_SCOPE (${roots.join(", ")}). Report a REOPEN_REQUEST to the Lead.`;
+	return null;
 }
 
 /**
@@ -326,7 +321,7 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 					? "This Worker session is read-only (no valid V3 brief with MODE: write this turn). Propose the change in your report instead of editing files."
 					: "EDIT_AUTHORITY is denied for this task even though MODE is write. Report AUTHORITY_MISMATCH to the Lead.";
 			}
-			const scopeBlock = ownedScopeBlockReason(brief, writeTarget(toolName, toolInput), cwd);
+			const scopeBlock = ownedScopeBlockReason(brief, writeTargets(toolName, toolInput), cwd);
 			if (scopeBlock) return scopeBlock;
 		}
 		if (role === "lead" && !leadWriteEnabled()) {
@@ -339,6 +334,9 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 	if (SHELL_TOOLS.has(toolName)) {
 		if (role === "supervisor") {
 			return "Supervisor cannot run shell commands. Observe through the Paseo MCP (list_agents, get_agent_status, get_agent_activity) and Read for inspection.";
+		}
+		if (role === "reviewer") {
+			return "Reviewer is behaviorally read-only and cannot run shell commands. Report findings instead.";
 		}
 		if (role === "worker" && resolveWorkerMode(brief) !== "write") {
 			return "This Worker turn is read-only, so shell execution is disabled. A new valid V3 brief with MODE: write is required for Bash/PowerShell.";

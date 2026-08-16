@@ -160,7 +160,17 @@ async function backup(pathname) {
 	return target;
 }
 
+async function assertSafeTarget(target) {
+	try {
+		const info = await lstat(target);
+		if (info.isSymbolicLink()) throw new Error(`Refusing to write through symlink target ${target}`);
+	} catch (error) {
+		if (error?.code !== "ENOENT") throw error;
+	}
+}
+
 async function installOwnedFile(source, target, mode) {
+	await assertSafeTarget(target);
 	const sourceText = await readFile(source, "utf8");
 	if (await exists(target)) {
 		const targetText = await readFile(target, "utf8");
@@ -197,6 +207,7 @@ function splitProjectTrustTail(text) {
 }
 
 async function installRoleConfig(source, target) {
+	await assertSafeTarget(target);
 	const sourceText = await readFile(source, "utf8");
 	let projectTrust = "";
 	if (await exists(target)) {
@@ -264,6 +275,7 @@ async function installAuthLink(roleHome) {
 }
 
 async function writeJsonAtomic(pathname, value) {
+	await assertSafeTarget(pathname);
 	const text = `${JSON.stringify(value, null, 2)}\n`;
 	if (await exists(pathname)) {
 		const current = await readFile(pathname, "utf8");
