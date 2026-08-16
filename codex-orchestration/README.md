@@ -20,10 +20,10 @@ Kiến trúc tôn trọng đặc thù Codex:
   mục riêng (`~/.codex-paseo/<role>/`).
 - Codex đọc **`developer_instructions`** trong file `config.toml` để định nghĩa
   role behavior.
-- Codex **không có enforcement layer**; pack này dùng `sandbox_mode =
-  "danger-full-access"` với `approval_policy = "never"`, và giới hạn hành vi bằng
-  **instruction-only enforcement** qua `developer_instructions` + MCP
-  `enabled_tools` allowlist (không có extension cứng như pack Pi).
+- Codex dùng hooks `PreToolUse` + `UserPromptSubmit` để hard-enforce role
+  allowlist, V3 Task Brief, owned scope và git-push scoping; `sandbox_mode =
+  "danger-full-access"` và `approval_policy = "never"` vẫn là capability, không
+  phải authority.
 - MCP của Paseo được inject chọn lọc qua launcher `codex-role-app-server` bằng
   Codex `-c` overrides, chỉ Lead/Supervisor nhận.
 
@@ -59,18 +59,19 @@ Worker/Reviewer không nhận Paseo MCP: provider của chúng là `["codex"]` (
 launcher) nên không có `-c` overrides injected. Chỉ Lead/Supervisor chạy qua
 `codex-role-app-server`, launcher build URL agent-scoped khi có `PASEO_AGENT_ID`.
 
-## 3. Lớp enforcement: instruction-only
+## 3. Lớp enforcement: Codex hooks
 
-Khác pack Pi (có extension cứng `setActiveTools` + backstop `tool_call`) và pack
-Claude (có policy hooks), pack Codex **không có enforcement layer cứng**. Tất cả
-được giới hạn bằng:
+Pack cài hooks chính thức của Codex trong từng `CODEX_HOME/<role>/hooks/` và
+`hooks.json`. `PreToolUse` fail-closed cho Bash, `apply_patch`, native Agent/Task,
+MCP Paseo; `UserPromptSubmit` thay state V3 mỗi turn. Policy dùng
+`PASEO_CODEX_ROLE`, `PASEO_TEAM_LEAD_WRITE`, owned-scope và chỉ cho push chính xác
+`git push -u origin HEAD:refs/heads/agent/<TASK_ID>`. Supervisor vẫn chỉ có
+allowlist MCP monitoring + gated `create_agent` successor `codex-lead/...`.
 
-- **`developer_instructions`** trong `config.toml`: mỗi role có một instruction
-  block định nghĩa authority, scope, và ranh giới hành vi.
-- **MCP `enabled_tools` allowlist** (supervisor): launcher inject danh sách 11
-  tool vào config MCP server, supervisor chỉ thấy tool subset này.
-- **V3 Task Brief**: Worker/Reviewer parse brief mỗi turn để derive authority;
-  Lead/Supervisor không cần brief vì role của họ cao hơn.
+Codex hooks là guardrail của tool path, không phải ACL chống process local cố ý
+bypass hoặc hosted tools (ví dụ `WebSearch`) không đi qua hook path. `app-server`
+phải được xác nhận trên phiên bản đang chạy; nếu hooks bị trust-skipped hoặc
+không fire, pack không được coi là hard-enforced.
 
 Khi `PASEO_CODEX_ROLE` unset, Codex chạy như thường (an toàn fallback).
 
@@ -350,9 +351,16 @@ CODEX_HOME=~/.codex-paseo/worker codex --strict-config app-server --help
 Codex/Paseo model catalog thay đổi theo phiên bản/account. Discovery lại trước
 khi sửa profile.
 
-## 15. Phát triển
+## 15. Phát triển và residual limits
 
-Không có extension hay hooks để test; verify bằng cách:
+Kiểm tra syntax/test bằng `node --check` và `node test/codex-policy.test.mjs`.
+Codex docs xác nhận hooks chạy cho local function tools, nhưng hosted tools như
+`WebSearch` không đi qua hook path; một số specialized tool paths có thể opt out.
+`UserPromptSubmit`/`PreToolUse` trên `app-server`, `permissionDecision: deny`,
+`bypass_hook_trust`, và shape `apply_patch` cần live-verify theo Codex CLI cụ thể.
+Nếu không chứng minh được deny thì trạng thái là `BLOCKED`, không silent fallback.
+
+Strict config check từng role:
 
 ```bash
 # Strict config check từng role

@@ -1,3 +1,4 @@
+bypass_hook_trust = true
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "danger-full-access"
@@ -76,3 +77,6 @@ open_world_enabled = false
 
 [shell_environment_policy]
 ignore_default_excludes = false
+
+[features]
+hooks = true

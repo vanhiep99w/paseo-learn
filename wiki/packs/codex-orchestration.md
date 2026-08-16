@@ -26,9 +26,10 @@ The four Codex role profiles are the source of role behavior:
 
 Each TOML sets `sandbox_mode = "danger-full-access"` and
 `approval_policy = "never"`, disables native Codex subagents (`[agents] enabled = false`),
-and carries the role's `developer_instructions`. **There is no enforcement
-extension** — role behavior is bounded by instructions plus the MCP `enabled_tools`
-allowlist (see [../architecture.md](../architecture.md#capability-is-not-authority)).
+and enables Codex hooks. Installed `PreToolUse`/`UserPromptSubmit` hooks enforce
+role allowlists, V3 authority, owned scope, and git-push scoping; the MCP
+`enabled_tools` allowlist remains the Supervisor capability boundary (see
+[../architecture.md](../architecture.md#capability-is-not-authority)).
 
 Why role-specific `CODEX_HOME` instead of `codex --profile`? Codex 0.147.0
 rejects `--profile` when the command is `app-server`, which is the interface
@@ -102,9 +103,12 @@ Provider config shape (see the live merge logic in `providerConfig()`):
   `ultra`; Sol does. A Lead must reject an invalid profile rather than silently
   repair it. Codex Lead routes to `codex-*` by default; cross-family requires an
   explicit Human request. (§9 of the codex guide; `docs/agent-profiles.md`.)
-- **No security boundary:** full access + instruction-only enforcement means a
-  process can still write files or call the local MCP HTTP endpoint directly.
-  This is intentional for trusted machines; see [../architecture.md](../architecture.md#capability-is-not-authority).
+- **Residual limits:** hooks cover local tool paths, not hosted tools such as
+  `WebSearch`, and specialized paths may opt out. Full access still lets a
+  process write files or call the local MCP HTTP endpoint directly. Hook trust,
+  `app-server` event coverage, and deny behavior must be verified on the exact
+  Codex version; this is intentional for trusted machines (see
+  [../architecture.md](../architecture.md#capability-is-not-authority).)
 
 ## Key source references
 

@@ -34,6 +34,7 @@ if (unknown.length) {
 const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
 const sourceLauncher = path.join(packRoot, "bin", "codex-role-app-server");
+const sourcePolicy = path.join(packRoot, "shared", "paseo-team-policy");
 const codexHome = path.resolve(
 	process.env.CODEX_HOME || path.join(homedir(), ".codex"),
 );
@@ -78,6 +79,7 @@ function providerConfig() {
 			env: {
 				CODEX_HOME: path.join(rolesHome, "lead"),
 				PASEO_MCP_ACCESS: "lead",
+				PASEO_CODEX_ROLE: "lead",
 			},
 		},
 		"codex-worker": {
@@ -86,7 +88,7 @@ function providerConfig() {
 			description:
 				"Full-access implementation agent bounded by its Task Brief",
 			command: ["codex"],
-			env: { CODEX_HOME: path.join(rolesHome, "worker") },
+			env: { CODEX_HOME: path.join(rolesHome, "worker"), PASEO_CODEX_ROLE: "worker" },
 		},
 		"codex-reviewer": {
 			extends: "codex",
@@ -94,7 +96,7 @@ function providerConfig() {
 			description:
 				"Full-access runtime with behaviorally read-only review instructions",
 			command: ["codex"],
-			env: { CODEX_HOME: path.join(rolesHome, "reviewer") },
+			env: { CODEX_HOME: path.join(rolesHome, "reviewer"), PASEO_CODEX_ROLE: "reviewer" },
 		},
 		"codex-supervisor": {
 			extends: "codex",
@@ -105,6 +107,7 @@ function providerConfig() {
 			env: {
 				CODEX_HOME: path.join(rolesHome, "supervisor"),
 				PASEO_MCP_ACCESS: "supervisor",
+				PASEO_CODEX_ROLE: "supervisor",
 			},
 		},
 	};
@@ -225,6 +228,12 @@ async function installRoleConfig(source, target) {
 	);
 }
 
+async function installOwnedDir(source, target) {
+	for (const entry of await (await import("node:fs/promises")).readdir(source, { withFileTypes: true })) {
+		if (entry.isFile()) await installOwnedFile(path.join(source, entry.name), path.join(target, entry.name), entry.name.endsWith(".mjs") ? 0o755 : undefined);
+	}
+}
+
 async function installAuthLink(roleHome) {
 	const source = path.join(codexHome, "auth.json");
 	const target = path.join(roleHome, "auth.json");
@@ -283,6 +292,7 @@ async function main() {
 		const roleHome = path.join(rolesHome, roleByProfile[profile]);
 		await installRoleConfig(source, path.join(roleHome, "config.toml"));
 		await installAuthLink(roleHome);
+		await installOwnedDir(sourcePolicy, path.join(roleHome, "hooks"));
 	}
 	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);
 

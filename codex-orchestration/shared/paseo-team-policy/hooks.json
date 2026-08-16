@@ -1,0 +1,7 @@
+{
+  "description": "Paseo Codex role policy hooks",
+  "hooks": {
+    "PreToolUse": [{"matcher":"Bash|apply_patch|Edit|Write|MultiEdit|NotebookEdit|Artifact|Agent|Task|mcp__paseo__.*","hooks":[{"type":"command","command":"node \"$CODEX_HOME/hooks/pre-tool-use.mjs\"","timeout":30}]}],
+    "UserPromptSubmit": [{"hooks":[{"type":"command","command":"node \"$CODEX_HOME/hooks/user-prompt-submit.mjs\"","timeout":30}]}]
+  }
+}

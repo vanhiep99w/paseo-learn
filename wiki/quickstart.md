@@ -50,8 +50,9 @@ The three active packs implement the **same four-role model with different
 mechanisms** because each CLI exposes configuration differently:
 
 - **Codex** uses per-role `CODEX_HOME` with a `config.toml` (model + sandbox +
-  `developer_instructions`) and a launcher that injects the agent-scoped Paseo
-  MCP. Enforcement is **instruction-only** (`enabled_tools` on the MCP server).
+  `developer_instructions`) plus `PreToolUse`/`UserPromptSubmit` hooks and a
+  launcher that injects the agent-scoped Paseo MCP. Hooks enforce role
+  allowlists, V3 authority, owned scope, and git-push scoping.
 - **Pi** uses per-role `PI_CODING_AGENT_DIR` with an `AGENTS.md` system prompt +
   `settings.json` + `mcp.json`, a launcher that sets the MCP URL, **plus** a
   shared TypeScript extension that hard-enforces tool allowlists, V3 Task Brief
