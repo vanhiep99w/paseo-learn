@@ -1,15 +1,17 @@
 # Pack: pi-orchestration (Pi CLI)
 
 The Pi role pack runs the Pi CLI as a four-role team under Paseo. It lives at
-`pi-orchestration/` and is currently **uncommitted** in the working tree. It is
+`pi-orchestration/` and is committed in the repository. It is
 the direct Pi counterpart of [codex-orchestration.md](codex-orchestration.md);
 shared concepts are in [../architecture.md](../architecture.md). A Pi role
 profile/custom provider defines behavior and enforcement; it is not a Paseo
 **Agent Profile**, which is only a host-local runtime-settings preset.
 
-Base policy runtime was verified with Pi 0.84.1, Paseo 0.2.5, and
-pi-mcp-adapter 2.21.0. Agent Profile routing requires Paseo v0.4.0+; older
-daemons continue through explicit discovery and record
+Base policy runtime was first verified with Pi 0.84.1, Paseo 0.2.5, and
+pi-mcp-adapter 2.21.0; re-verified on this host with Pi 0.84.2, Paseo 0.4.0,
+and pi-mcp-adapter 2.26.0 (`node test/active-policy.test.mjs` passing, all four
+`pi-*` providers reported available). Agent Profile routing requires
+Paseo v0.4.0+; older daemons continue through explicit discovery and record
 `PROFILE_CATALOG_UNAVAILABLE`.
 
 ## How role separation works
@@ -156,9 +158,11 @@ monitoring/recovery allowlist enforced by the extension and Codex launcher.
   `get_agent_status`. Pi Lead routes to `pi-*` by default; cross-family requires
   an explicit Human request. A profile never grants authority; see
   `docs/agent-profiles.md`.
-- **End-to-end not yet exercised:** this pack is uncommitted and has not been run
-  through a real Lead→Worker→Reviewer flow; the enforcement unit logic is
-  verified, the Paseo delegation path is not. Treat as beta.
+- **Partial live verification:** the pack is committed and the Lead/Supervisor
+  role providers have run under Paseo (`pi-lead` and `pi-supervisor` agents
+  exist in the daemon history), but no `pi-worker`/`pi-reviewer` agent has been
+  created through the role providers yet; the enforcement unit logic is
+  verified, the full Worker→Reviewer delegation path is not. Treat as beta.
 
 ## Key source references
 

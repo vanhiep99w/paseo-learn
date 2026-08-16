@@ -8,12 +8,15 @@ counterpart of [codex-orchestration.md](codex-orchestration.md) and
 defines behavior and enforcement; it is not a Paseo **Agent Profile**, which is
 only a host-local runtime-settings preset.
 
-Status: **spec-grade**. Paseo supports a native `claude` provider
-(`"extends": "claude"`), but on hosts where the `claude` CLI or its provider is
-unavailable the pack has not been live-verified end-to-end (see
-`docs/paseo-agent-orchestration-architecture-vi.md` §9.3). The enforcement
-logic is ported from the Pi pack and unit-smoke-tested; the Paseo delegation
-path is not yet exercised.
+Status: **live-verified once, beta**. On this host the `claude` provider is
+available (`paseo provider ls`) and the pack has run one full T-1
+Lead→Worker→Reviewer flow under Paseo — a `claude-lead` session spawned a
+`claude-worker` engineer and a `claude-reviewer` independent reviewer, and the
+Lead's five-step checklist completed (trace under `~/.claude-paseo/lead/tasks/`).
+On hosts where the `claude` CLI or its provider is unavailable the pack remains
+spec-grade (see `docs/paseo-agent-orchestration-architecture-vi.md` §9.3). The
+enforcement logic is ported from the Pi pack and unit-smoke-tested
+(`node test/active-policy.test.mjs`).
 
 ## How role separation works
 
@@ -170,9 +173,13 @@ per-tool `includeTools` field, unlike Pi's `mcp.json`).
   `get_agent_status`. Claude Lead routes to `claude-*` by default; cross-family
   requires an explicit Human request. A profile never grants authority; see
   `docs/agent-profiles.md`.
-- **Live verification outstanding:** the enforcement logic is smoke-tested; the
-  real Lead→Worker→Reviewer flow under Paseo is not yet exercised (claude
-  provider may be unavailable). Treat as beta.
+- **Live verification status:** one full T-1 Lead→Worker→Reviewer flow has run
+  on this host with the `claude` provider available; repeated flows and the
+  correction loop (new commit → re-review) are not yet exercised. Treat as beta.
+- **Host Agent-Profile drift:** `~/.paseo/config.json` currently holds only the
+  four `paseo-learn:pi:*` host-default profiles — the `paseo-learn:claude:*`
+  quartet this installer creates has not been merged on this host. Re-run
+  `./install claude` (dry-run first) to close the gap.
 
 ## Key source references
 

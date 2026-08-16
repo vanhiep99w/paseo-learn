@@ -42,8 +42,8 @@ pack**:
 | Pack | Agent CLI | Status | Where |
 |---|---|---|---|
 | `codex-orchestration/` | Codex (`codex app-server`) | committed | [packs/codex-orchestration.md](packs/codex-orchestration.md) |
-| `pi-orchestration/` | Pi (`pi --mode rpc`) | uncommitted working tree | [packs/pi-orchestration.md](packs/pi-orchestration.md) |
-| `claude-orchestration/` | Claude Code (`claude`) | uncommitted working tree | [packs/claude-orchestration.md](packs/claude-orchestration.md) |
+| `pi-orchestration/` | Pi (`pi --mode rpc`) | committed | [packs/pi-orchestration.md](packs/pi-orchestration.md) |
+| `claude-orchestration/` | Claude Code (`claude`) | committed | [packs/claude-orchestration.md](packs/claude-orchestration.md) |
 | `tai-lieu-tham-khao/` | Pi (older design) | reference / archived | [packs/reference-pack.md](packs/reference-pack.md) |
 
 The three active packs implement the **same four-role model with different
@@ -61,7 +61,8 @@ mechanisms** because each CLI exposes configuration differently:
   (permissions + hooks), a launcher that injects the agent-scoped Paseo MCP via
   `--mcp-config`, **plus** a set of Node **hooks** (`PreToolUse` /
   `UserPromptSubmit`) that hard-enforce the same policy as the Pi extension.
-  Status: spec-grade (provider `claude` may be unavailable on the host).
+  Status: live-verified once on this host (T-1 Lead→Worker→Reviewer flow;
+  the `claude` provider is currently available).
 
 `tai-lieu-tham-khao/` is the original Pi role pack ("paseo-pi-team"). It uses a
 single shared extension + global MCP injection + a four-layer model-routing
@@ -152,10 +153,14 @@ Areas intentionally not documented yet:
   code or config; deferred.
 - **`tai-lieu-tham-khao/outdate-root-for-herdr.config.toml`** — name marks it
   outdated; deferred until relevance is confirmed.
-- **End-to-end live orchestration verification** of `pi-orchestration` and
-  `claude-orchestration` — both packs are in the uncommitted working tree and
-  have not been exercised through a real Lead→Worker→Reviewer flow yet. The
-  Claude pack additionally depends on the Paseo `claude` provider being
-  available on the host; if it is not, the pack is spec-grade only (see
-  [packs/pi-orchestration.md](packs/pi-orchestration.md) and
-  [packs/claude-orchestration.md](packs/claude-orchestration.md)).
+- **End-to-end live orchestration verification of `pi-orchestration`** — Lead
+  and Supervisor role providers have run (`pi-lead`, `pi-supervisor` agents in
+  the daemon history), but no `pi-worker`/`pi-reviewer` agent has been created
+  through the role providers yet, so the full Lead→Worker→Reviewer flow remains
+  unexercised (see [packs/pi-orchestration.md](packs/pi-orchestration.md)).
+  By contrast, `claude-orchestration` has run one full T-1 flow
+  (see [packs/claude-orchestration.md](packs/claude-orchestration.md)).
+- **Host Agent-Profile drift for `claude-orchestration`** — `~/.paseo/config.json`
+  currently holds only the four `paseo-learn:pi:*` host-default profiles; the
+  `paseo-learn:claude:*` quartet has not been merged on this host. Re-run
+  `./install claude` (dry-run first) to close the gap.
