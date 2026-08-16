@@ -35,6 +35,7 @@ const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
 const sourceLauncher = path.join(packRoot, "bin", "codex-role-app-server");
 const sourcePolicy = path.join(packRoot, "shared", "paseo-team-policy");
+const sourcePolicyManifest = path.join(sourcePolicy, "hooks.json");
 const codexHome = path.resolve(
 	process.env.CODEX_HOME || path.join(homedir(), ".codex"),
 );
@@ -240,8 +241,14 @@ async function installRoleConfig(source, target) {
 }
 
 async function installOwnedDir(source, target) {
+	try {
+		const info = await lstat(target);
+		if (info.isSymbolicLink()) throw new Error(`Refusing to write through symlink directory ${target}`);
+	} catch (error) {
+		if (error?.code !== "ENOENT") throw error;
+	}
 	for (const entry of await (await import("node:fs/promises")).readdir(source, { withFileTypes: true })) {
-		if (entry.isFile()) await installOwnedFile(path.join(source, entry.name), path.join(target, entry.name), entry.name.endsWith(".mjs") ? 0o755 : undefined);
+		if (entry.isFile() && entry.name !== "hooks.json") await installOwnedFile(path.join(source, entry.name), path.join(target, entry.name), entry.name.endsWith(".mjs") ? 0o755 : undefined);
 	}
 }
 
@@ -288,7 +295,12 @@ async function writeJsonAtomic(pathname, value) {
 	if (!dryRun) {
 		await mkdir(path.dirname(pathname), { recursive: true });
 		const temp = `${pathname}.tmp.${process.pid}`;
-		await writeFile(temp, text, { encoding: "utf8", mode: 0o600 });
+		try {
+			await writeFile(temp, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
+		} catch (error) {
+			if (error?.code === "EEXIST") throw new Error(`Refusing to reuse existing atomic temp file ${temp}`);
+			throw error;
+		}
 		await rename(temp, pathname);
 	}
 	console.log(`${dryRun ? "would update" : "updated"}: ${pathname}`);
@@ -304,6 +316,7 @@ async function main() {
 		const roleHome = path.join(rolesHome, roleByProfile[profile]);
 		await installRoleConfig(source, path.join(roleHome, "config.toml"));
 		await installAuthLink(roleHome);
+		await installOwnedFile(sourcePolicyManifest, path.join(roleHome, "hooks.json"), 0o600);
 		await installOwnedDir(sourcePolicy, path.join(roleHome, "hooks"));
 	}
 	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);

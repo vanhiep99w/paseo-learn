@@ -61,8 +61,8 @@ launcher) nên không có `-c` overrides injected. Chỉ Lead/Supervisor chạy 
 
 ## 3. Lớp enforcement: Codex hooks
 
-Pack cài hooks chính thức của Codex trong từng `CODEX_HOME/<role>/hooks/` và
-`hooks.json`. `PreToolUse` fail-closed cho Bash, `apply_patch`, native Agent/Task,
+Pack cài manifest hooks tại root từng role home (`CODEX_HOME/hooks.json`) và
+các script tại `CODEX_HOME/hooks/`. `PreToolUse` fail-closed cho Bash, `apply_patch`, native Agent/Task,
 MCP Paseo; `UserPromptSubmit` thay state V3 mỗi turn. Policy dùng
 `PASEO_CODEX_ROLE`, `PASEO_TEAM_LEAD_WRITE`, owned-scope và chỉ cho push chính xác
 `git push -u origin HEAD:refs/heads/agent/<TASK_ID>`. Supervisor vẫn chỉ có

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -25,6 +25,8 @@ assert.equal(supervisorCreateAgentBlockReason({ provider: "codex-lead/x/y", labe
 const home = mkdtempSync(path.join(tmpdir(), "paseo-codex-hook-")); mkdirSync(path.join(home, "hooks"));
 const run = (name, event) => spawnSync(process.execPath, [path.join(repo, "codex-orchestration/shared/paseo-team-policy", name)], { env: { ...process.env, TMPDIR: home, PASEO_CODEX_ROLE: "worker" }, input: JSON.stringify(event), encoding: "utf8" });
 assert.equal(run("user-prompt-submit.mjs", { session_id: "s", prompt: "plain" }).status, 0);
+assert.equal(run("pre-tool-use.mjs", {}).status, 2);
+assert.equal(run("pre-tool-use.mjs", []).status, 2);
 const denied = run("pre-tool-use.mjs", { session_id: "s", cwd: repo, tool_name: "Bash", tool_input: { command: "git push origin main" } });
 assert.equal(denied.status, 0); assert.match(denied.stdout, /permissionDecision.*deny/);
 const installRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-"));
@@ -32,4 +34,10 @@ const outside = path.join(installRoot, "outside.toml"); writeFileSync(outside, "
 const codexHome = path.join(installRoot, "codex"); mkdirSync(codexHome); symlinkSync(outside, path.join(codexHome, "paseo-lead.config.toml"));
 const install = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs"), "--dry-run", "--force"], { env: { ...process.env, CODEX_HOME: codexHome, PASEO_HOME: path.join(installRoot, "paseo"), PASEO_CODEX_ROLES_HOME: path.join(installRoot, "roles") }, encoding: "utf8" });
 assert.equal(install.status, 1); assert.match(install.stderr, /symlink target/); assert.equal(readFileSync(outside, "utf8"), "sentinel");
+const goodRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-good-"));
+const good = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs")], { env: { ...process.env, CODEX_HOME: path.join(goodRoot, "codex"), PASEO_HOME: path.join(goodRoot, "paseo"), PASEO_CODEX_ROLES_HOME: path.join(goodRoot, "roles") }, encoding: "utf8" });
+assert.equal(good.status, 0, good.stderr); assert.ok(existsSync(path.join(goodRoot, "roles", "lead", "hooks.json"))); assert.ok(!existsSync(path.join(goodRoot, "roles", "lead", "hooks", "hooks.json")));
+const linkedRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-linked-")); const linkedRoles = path.join(linkedRoot, "roles"); const linkedOutside = path.join(linkedRoot, "outside"); mkdirSync(linkedOutside, { recursive: true }); mkdirSync(path.join(linkedRoles, "lead"), { recursive: true }); symlinkSync(linkedOutside, path.join(linkedRoles, "lead", "hooks"));
+const linked = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs")], { env: { ...process.env, CODEX_HOME: path.join(linkedRoot, "codex"), PASEO_HOME: path.join(linkedRoot, "paseo"), PASEO_CODEX_ROLES_HOME: linkedRoles }, encoding: "utf8" });
+assert.equal(linked.status, 1); assert.match(linked.stderr, /symlink directory/);
 console.log("[codex-policy] tests passed");

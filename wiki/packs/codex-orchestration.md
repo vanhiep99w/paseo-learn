@@ -24,6 +24,8 @@ The four Codex role profiles are the source of role behavior:
 | `codex-reviewer` | `paseo-reviewer` | `gpt-5.6-luna` / `max` | `codex-orchestration/profiles/paseo-reviewer.config.toml` |
 | `codex-supervisor` | `paseo-supervisor` | `gpt-5.6-luna` / `medium` | `codex-orchestration/profiles/paseo-supervisor.config.toml` |
 
+Each role home contains `hooks.json` at the `CODEX_HOME` root and policy scripts under `CODEX_HOME/hooks/`; Codex discovers the manifest at the root, not inside that script directory.
+
 Each TOML sets `sandbox_mode = "danger-full-access"` and
 `approval_policy = "never"`, disables native Codex subagents (`[agents] enabled = false`),
 and enables Codex hooks. Installed `PreToolUse`/`UserPromptSubmit` hooks enforce
