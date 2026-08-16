@@ -41,6 +41,13 @@ tham khảo, không phải active install target.
 
 ## Các invariant chính
 
+### Tiếng Việt là ngôn ngữ giao tiếp mặc định
+
+Mọi response cho Human và mọi prompt/message/report/review/handoff giữa các
+agent phải dùng tiếng Việt. Code, command, path, identifier, protocol field,
+log/error được quote và machine-readable token giữ nguyên. Human có thể chỉ định
+ngôn ngữ khác cho một output cụ thể.
+
 ### Paseo là control plane duy nhất
 
 Lead delegate qua Paseo MCP (`create_agent`, `send_agent_prompt`,
@@ -199,6 +206,7 @@ Focused active-pack checks:
 ```bash
 node test/agent-profile-routing.test.mjs
 node test/active-policy.test.mjs
+node test/language-policy.test.mjs
 
 node --check pi-orchestration/install.mjs
 node --check claude-orchestration/install.mjs

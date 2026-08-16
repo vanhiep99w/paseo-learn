@@ -19,6 +19,15 @@ The Worker may return `REOPEN_REQUEST`, `DEPENDENCY_REQUEST`, or `BLOCKED` when
 scope overlaps or acceptance is ambiguous. A brief must never smuggle in a
 verdict — it gives objective, constraints, and evidence.
 
+## Vietnamese is the default interaction language
+
+Every user-facing response and every agent-to-agent prompt, message, report,
+review, and handoff must be in Vietnamese. Code, commands, paths, identifiers,
+protocol field names, quoted logs/errors, and required machine-readable tokens
+stay in their original form. An explicit Human request for another language may
+override this rule only for the specific requested output. This is a behavioral
+contract, not a machine-enforced language detector.
+
 ## Paseo is the only control plane
 
 There is no private task database, candidate ledger, or integration engine. An

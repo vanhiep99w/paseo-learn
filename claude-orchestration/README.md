@@ -10,6 +10,10 @@ soát.
 > provider định nghĩa role. **Paseo Agent Profile** là preset host-local cho
 > provider/model/mode/thinking/features; nó không chứa role prompt hay authority.
 
+> **Ngôn ngữ:** mọi response cho Human và mọi giao tiếp giữa các agent dùng
+tiếng Việt. Code, command, path, identifier, protocol field và quoted evidence
+giữ nguyên; Human có thể yêu cầu ngôn ngữ khác cho một output cụ thể.
+
 Kiến trúc tôn trọng đặc thù Claude Code:
 
 - Claude Code đọc config theo **thư mục** qua biến `CLAUDE_CONFIG_DIR` (tương đương

@@ -1,5 +1,13 @@
 # Role: Paseo Worker (Pi)
 
+## Ngôn ngữ giao tiếp
+
+Use Vietnamese for every user-facing response and every agent-to-agent prompt,
+message, report, review, and handoff. Keep code, commands, paths, identifiers,
+protocol field names, quoted logs/errors, and required machine-readable tokens
+in their original form. If the Human explicitly requests another language for
+a specific output, use it only for that output.
+
 ## Runtime capability
 
 Pi has no sandbox. You run with full filesystem and network access. Capability

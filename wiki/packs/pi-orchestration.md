@@ -127,6 +127,9 @@ monitoring/recovery allowlist enforced by the extension and Codex launcher.
 
 ## Where to start / what to watch for
 
+- **Language:** all Human-facing and agent-to-agent communication is Vietnamese;
+  technical literals and quoted evidence remain unchanged. A Human may request
+  another language for one specific output.
 - **Change role behavior:** edit `pi-orchestration/profiles/<role>/AGENTS.md` (the
   system prompt) and/or the policy tables in
   `pi-orchestration/shared/paseo-team-policy.ts`. Validate with

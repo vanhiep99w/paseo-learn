@@ -168,7 +168,10 @@ that decision belongs to the Human.
 
 Every Worker/Reviewer prompt is a V3 brief (read-only ones included): an
 authority block between `PASEO_TEAM_TASK_V3_BEGIN` and `PASEO_TEAM_TASK_V3_END`,
-with the prose task body AFTER the end marker. The policy hooks enforce this
+with the prose task body AFTER the end marker. Write that prose body and every
+agent-to-agent follow-up in Vietnamese; keep marker names, field keys, code,
+commands, paths, identifiers, and quoted evidence unchanged. The policy hooks
+enforce this
 fail-closed on **every turn**:
 
 - prompt without a valid V3 block → `read-only`;

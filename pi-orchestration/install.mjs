@@ -299,6 +299,7 @@ const defaultPreferences = {
 	},
 	preferences: [
 		"Use pi-lead for decomposition and acceptance, pi-worker for bounded writes in the current workspace, and pi-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Pi Lead routes to pi-* role providers. Use claude-* or codex-* only when the Human explicitly requests that provider family for the delegation. If the required Pi role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
 		"When list_profiles is available, treat a complete profile whose provider matches the chosen pi role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
 		"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",

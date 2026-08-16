@@ -6,6 +6,10 @@ body goes AFTER the end marker. The policy hooks (UserPromptSubmit +
 PreToolUse) parse this strict block on every turn — anything malformed,
 duplicated, or outside the allowlist resolves fail-closed to read-only.
 
+Write the prose task body and agent-to-agent follow-ups in Vietnamese. Keep
+marker names, field keys, code, commands, paths, identifiers, and quoted
+evidence in their original form.
+
 ```text
 PASEO_TEAM_TASK_V3_BEGIN
 

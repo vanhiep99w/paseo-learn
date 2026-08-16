@@ -86,6 +86,9 @@ Provider config shape (see the live merge logic in `providerConfig()`):
 
 ## Where to start / what to watch for
 
+- **Language:** all Human-facing and agent-to-agent communication is Vietnamese;
+  technical literals and quoted evidence remain unchanged. A Human may request
+  another language for one specific output.
 - **Change role behavior:** edit the `developer_instructions` in
   `codex-orchestration/profiles/paseo-<role>.config.toml`, then re-run
   `./install codex`. Validate with

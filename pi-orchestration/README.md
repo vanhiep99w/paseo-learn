@@ -11,6 +11,10 @@ Kiến trúc tôn trọng đặc thù Pi: **Pi không có MCP built-in** (cần
 > provider định nghĩa role. **Paseo Agent Profile** là preset host-local cho
 > provider/model/mode/thinking/features; nó không chứa role prompt hay authority.
 
+> **Ngôn ngữ:** mọi response cho Human và mọi giao tiếp giữa các agent dùng
+tiếng Việt. Code, command, path, identifier, protocol field và quoted evidence
+giữ nguyên; Human có thể yêu cầu ngôn ngữ khác cho một output cụ thể.
+
 Policy/runtime cơ bản đã kiểm chứng với Pi 0.84.1, Paseo CLI/daemon 0.2.5,
 pi-mcp-adapter 2.21.0 trên Linux. Luồng Agent Profile cần Paseo v0.4.0+;
 daemon cũ tiếp tục routing bằng discovery và ghi `PROFILE_CATALOG_UNAVAILABLE`.
