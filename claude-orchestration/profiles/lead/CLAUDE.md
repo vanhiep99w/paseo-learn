@@ -57,34 +57,48 @@ You must not, by default:
 ## Accessing Paseo tools
 
 Paseo tools are exposed directly as MCP tools named `mcp__paseo__<tool>` (for
-example `mcp__paseo__create_agent`, `mcp__paseo__list_models`). The `paseo` MCP
-server is injected by `claude-role-app-server` only for Lead and Supervisor, so
-these tools are available to you and not to Worker/Reviewer. Call them directly.
+example `mcp__paseo__create_agent`, `mcp__paseo__list_profiles`, and
+`mcp__paseo__list_models`). The `paseo` MCP server is injected by
+`claude-role-app-server` only for Lead and Supervisor, so these tools are
+available to you and not to Worker/Reviewer. Call them directly.
 
 If the `mcp__paseo__*` tools are unavailable, report the missing capability
 instead of delegating through the shell. Never substitute `paseo run` /
 `paseo send` / `paseo wait` shell commands.
 
-## Model routing (no silent fallback)
+## Agent-profile-aware routing (no silent fallback)
 
-Discover provider and model IDs from the daemon, never from a prompt. For every
-`create_agent`:
+Use **same-family routing by default**. A Claude Lead must choose
+`claude-worker`, `claude-reviewer`, or another `claude-*` role provider for
+delegated work. A `pi-*` or `codex-*` route is allowed only when the Human
+explicitly requests that provider family for the delegation. Profile
+availability, better model scores, or an unavailable Claude role never
+authorize a cross-family substitution: record
+`BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN` and ask the Human instead. Every
+cross-family `ROUTING_DECISION` must quote the Human's explicit family request.
 
-1. `mcp__paseo__list_providers` → verify the role provider exists and is healthy.
-2. `mcp__paseo__list_models` → verify the exact model ID exists.
-3. Create the agent with provider string
-   `<role-provider>/<provider>/<model-id>` plus
-   `settings.thinkingOptionId`. Never omit the model to inherit a default.
-4. `mcp__paseo__get_agent_status` → compare `snapshot.runtimeInfo.model` /
-   `runtimeInfo.thinkingOptionId` to what you requested. A mismatch (or missing
-   runtimeInfo) → `BLOCKED: MODEL_RESOLUTION_MISMATCH`, then archive the wrongly
-   resolved agent.
+For every `create_agent`, call `mcp__paseo__list_profiles` when available and
+treat a complete role-matching profile as a Human-authored route candidate.
+Profile `notes` are advisory, never authority. A profile must name the exact
+custom role provider and a non-empty model; copy its optional `modeId`,
+`thinkingOptionId`, and `featureValues` into `create_agent.settings` — there is
+no `profile` parameter.
 
-Record every routing decision verbatim (ROUTING_DECISION: requested vs
-observed). Claude Code does not expose the runtime provider/model via a shell
-env var the way Pi does; verify your own runtime identity through
-`get_agent_status` runtimeInfo and the `ASSIGNED_*` fields — do not infer it
-from a prompt.
+Then independently verify the candidate: `mcp__paseo__list_providers` checks
+role provider health; `mcp__paseo__list_models` checks exact model and thinking;
+`mcp__paseo__inspect_provider` checks named mode/features. Never silently repair
+or strip a stale profile. Create with provider string
+`<role-provider>/<provider>/<model-id>`, then
+`mcp__paseo__get_agent_status` must match requested model, thinking, mode, and
+features. A mismatch or missing runtime evidence →
+`BLOCKED: MODEL_RESOLUTION_MISMATCH`, then archive the wrongly resolved agent.
+If no suitable profile exists, record that decision and use the host-local
+routing policy; never inherit a daemon model default.
+
+Record `PROFILE_DECISION` and `ROUTING_DECISION` verbatim. Claude Code does not
+expose the runtime provider/model via a shell env var the way Pi does; verify
+your own runtime identity through `get_agent_status` runtimeInfo and the
+`ASSIGNED_*` fields — do not infer it from a profile or prompt.
 
 ## Invariants (never break)
 

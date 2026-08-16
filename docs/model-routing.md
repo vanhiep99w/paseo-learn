@@ -23,11 +23,22 @@ Lớp 4  Host-local route (KHÔNG commit):
          CLASS → { paseoProvider, model: <pi-provider>/<model-id>, thinking }
 ```
 
-**Quyết định có chủ đích:** không pin danh sách model vào Paseo provider
-profile (dù `ProviderOverrideSchema.models` của Paseo 0.2.5 hỗ trợ). Lý do:
-catalog model là host-specific; pin vào config chung sẽ cần một profile mỗi
-model và nhân bản secret của môi trường lên repo. Model được chọn ở Lớp 4
-và truyền exact lúc `create_agent`.
+**Quyết định có chủ đích:** không pin danh sách model vào custom provider
+profile được commit (dù `ProviderOverrideSchema.models` của Paseo 0.2.5 hỗ
+trợ). Lý do: catalog model là host-specific; pin vào config chung sẽ cần một
+provider mỗi model và nhân bản cấu hình môi trường lên repo. Model được chọn ở
+Lớp 4 và truyền exact lúc `create_agent`.
+
+Paseo v0.4.0 thêm một khái niệm khác là **Agent Profile**, lưu host-wide trong
+`daemon.agentProfiles`. Active packs đọc nó qua `list_profiles` như một route
+candidate. Pi/Claude installers có thể tạo namespaced host-default profiles,
+trong khi Human profiles vẫn được giữ nguyên; các giá trị host-local không được
+commit vào pack. Agent Profile không phải custom provider profile và không thay
+pre/post verification. Same-family routing cũng là mặc định bắt buộc: Pi Lead
+chọn `pi-*`, Claude Lead chọn `claude-*`, và Codex Lead chọn `codex-*`.
+Cross-family chỉ được phép khi Human chỉ định rõ family cho delegation đó; nếu
+same-family route unavailable thì block và hỏi, không tự đổi family. Xem
+[`agent-profiles.md`](agent-profiles.md).
 
 ## Vì sao routing phải strict — ba silent-fallback đã xác minh
 
@@ -49,13 +60,17 @@ Cùng lắp ráp lại, **cơ chế bảo vệ là: pre-validate (list_models) +
 (không rơi về model khác — đã verify live); nhưng thinking clamp và pattern
 match **không** báo lỗi, nên observed-check là bắt buộc.
 
-## Chu trình bắt buộc của Lead (13 bước)
+## Chu trình bắt buộc của Lead
 
-Xem `tai-lieu-tham-khao/skills/paseo-team-lead/SKILL.md` → "Implementation — model routing
-cycle". Tóm tắt: `MODEL_CLASS` → route local → `list_providers` →
+Reference pack cũ dùng: `MODEL_CLASS` → route local → `list_providers` →
 `list_models` → exact string → `create_agent(provider=..., settings=
 {thinkingOptionId})` → `get_agent_status` → so khớp `runtimeInfo` → lệch thì
 `BLOCKED: MODEL_RESOLUTION_MISMATCH` và archive agent sai.
+
+Active packs trên Paseo v0.4.0+ thêm `list_profiles` trước discovery. Profile
+chỉ đề xuất route; Lead vẫn xác minh provider/model/thinking, dùng
+`inspect_provider` cho mode/features, rồi post-verify toàn bộ runtime state.
+Profile stale bị reject có ghi nhận, không bị sửa hoặc fallback âm thầm.
 
 ## Transmission format (đã xác minh bằng source Paseo 0.2.5)
 

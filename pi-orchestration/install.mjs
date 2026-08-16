@@ -15,8 +15,10 @@
  *   - the launcher pi-role-app-server is copied to ~/.paseo/bin;
  *   - four providers (pi-lead/worker/reviewer/supervisor) are merged into
  *     ~/.paseo/config.json with daemon.mcp.injectIntoAgents=false;
- *   - ~/.paseo/orchestration-preferences.json is merged (discovery-oriented,
- *     no pinned models — Pi inventory is host-specific).
+ *   - four namespaced Agent Profiles are merged without replacing Human-owned
+ *     entries; they pin the first/default model advertised by the live Pi
+ *     catalog and fail closed on managed-profile conflicts unless --force;
+ *   - ~/.paseo/orchestration-preferences.json is merged as fallback routing.
  *
  * The installer never restarts the Paseo daemon and backs up JSON first.
  */
@@ -35,6 +37,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { constants as fsConstants, existsSync as existsSyncSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +59,7 @@ if (unknown.length) {
 const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
 const sourceSharedExt = path.join(packRoot, "shared", "paseo-team-policy.ts");
+const sourceTaskBriefTemplate = path.join(packRoot, "templates", "TASK_BRIEF_V3.md");
 const sourceLauncher = path.join(packRoot, "bin", "pi-role-app-server");
 
 const piAgentDir = path.resolve(
@@ -81,6 +85,168 @@ const preferencesPath = path.join(paseoHome, "orchestration-preferences.json");
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 
 const roles = ["lead", "worker", "reviewer", "supervisor"];
+const profileDefaultEnv = "PASEO_PI_AGENT_PROFILE_DEFAULT_JSON";
+
+const agentProfileSpecs = {
+	lead: {
+		name: "Pi Lead · Host default",
+		icon: "compass",
+		color: "blue",
+		notes:
+			"Use for Pi Lead planning, decomposition, and acceptance. This profile does not grant implementation authority.",
+	},
+	worker: {
+		name: "Pi Worker · Host default",
+		icon: "hammer",
+		color: "amber",
+		notes:
+			"Use for bounded Pi Worker implementation after a valid current-turn V3 Task Brief.",
+	},
+	reviewer: {
+		name: "Pi Reviewer · Host default",
+		icon: "search",
+		color: "violet",
+		notes:
+			"Use for independent read-only review of an exact candidate SHA or the current working diff.",
+	},
+	supervisor: {
+		name: "Pi Supervisor · Host default",
+		icon: "eye",
+		color: "red",
+		notes:
+			"Use only for governance observation or gated Lead recovery, never ordinary task execution.",
+	},
+};
+
+function assertAgentProfilesPaseoVersion() {
+	const result = spawnSync("paseo", ["--version"], {
+		encoding: "utf8",
+		timeout: 10_000,
+	});
+	if (result.error || result.status !== 0) {
+		throw new Error("Paseo v0.4.0+ is required to install Agent Profiles");
+	}
+	const match = result.stdout.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+	if (!match) {
+		throw new Error(`Cannot parse Paseo version: ${result.stdout.trim()}`);
+	}
+	const [, major, minor] = match.map(Number);
+	if (major === 0 && minor < 4) {
+		throw new Error(
+			`Paseo v0.4.0+ is required to install Agent Profiles (found ${result.stdout.trim()})`,
+		);
+	}
+}
+
+function parseAgentProfileDefault(value, source) {
+	let parsed;
+	try {
+		parsed = typeof value === "string" ? JSON.parse(value) : value;
+	} catch (error) {
+		throw new Error(`${source} is not valid JSON: ${error.message}`);
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error(`${source} must be a JSON object`);
+	}
+	const model = typeof parsed.model === "string" ? parsed.model.trim() : "";
+	if (!model) {
+		throw new Error(`${source}.model must be a non-empty string`);
+	}
+	const thinkingOptionId =
+		typeof parsed.thinkingOptionId === "string"
+			? parsed.thinkingOptionId.trim()
+			: "";
+	return { model, ...(thinkingOptionId ? { thinkingOptionId } : {}) };
+}
+
+function discoverAgentProfileDefault() {
+	if (process.env[profileDefaultEnv]) {
+		return parseAgentProfileDefault(
+			process.env[profileDefaultEnv],
+			profileDefaultEnv,
+		);
+	}
+	const result = spawnSync(
+		"paseo",
+		["provider", "models", "pi", "--thinking", "--json"],
+		{ encoding: "utf8", timeout: 60_000 },
+	);
+	if (result.error) {
+		throw new Error(`Cannot discover Pi profile model: ${result.error.message}`);
+	}
+	if (result.status !== 0) {
+		throw new Error(
+			`Cannot discover Pi profile model: ${(result.stderr || result.stdout || "paseo provider models failed").trim()}`,
+		);
+	}
+	let models;
+	try {
+		models = JSON.parse(result.stdout);
+	} catch (error) {
+		throw new Error(`Cannot parse Pi model catalog: ${error.message}`);
+	}
+	if (!Array.isArray(models) || models.length === 0) {
+		throw new Error("Pi model catalog is empty; refusing to create provider-only Agent Profiles");
+	}
+	const first = models[0];
+	return parseAgentProfileDefault(
+		{
+			model: first.id,
+			thinkingOptionId: first.defaultThinkingOptionId ?? undefined,
+		},
+		"Pi model catalog default",
+	);
+}
+
+function managedAgentProfiles(profileDefault) {
+	return roles.map((role) => ({
+		id: `paseo-learn:pi:${role}:host-default`,
+		...agentProfileSpecs[role],
+		provider: `pi-${role}`,
+		model: profileDefault.model,
+		...(profileDefault.thinkingOptionId
+			? { thinkingOptionId: profileDefault.thinkingOptionId }
+			: {}),
+	}));
+}
+
+function canonicalJson(value) {
+	if (Array.isArray(value)) {
+		return `[${value.map(canonicalJson).join(",")}]`;
+	}
+	if (value && typeof value === "object") {
+		return `{${Object.keys(value)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value);
+}
+
+function mergeManagedAgentProfiles(config, desiredProfiles) {
+	const current = config.daemon.agentProfiles ?? [];
+	if (!Array.isArray(current)) {
+		throw new Error("daemon.agentProfiles must be an array");
+	}
+	const next = structuredClone(current);
+	for (const desired of desiredProfiles) {
+		const index = next.findIndex((profile) => profile?.id === desired.id);
+		if (index === -1) {
+			next.push(desired);
+			continue;
+		}
+		if (canonicalJson(next[index]) === canonicalJson(desired)) {
+			continue;
+		}
+		if (!force) {
+			throw new Error(
+				`Agent Profile ${desired.id} already exists with different config; use --force after review`,
+			);
+		}
+		next[index] = desired;
+	}
+	config.daemon.agentProfiles = next;
+}
 
 function providerConfig() {
 	const env = (role) => ({
@@ -133,6 +299,8 @@ const defaultPreferences = {
 	},
 	preferences: [
 		"Use pi-lead for decomposition and acceptance, pi-worker for bounded writes in the current workspace, and pi-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+		"Same-family routing is mandatory by default: a Pi Lead routes to pi-* role providers. Use claude-* or codex-* only when the Human explicitly requests that provider family for the delegation. If the required Pi role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
+		"When list_profiles is available, treat a complete profile whose provider matches the chosen pi role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
 		"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
 		"Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use pi-supervisor in ordinary single-task flows.",
 	],
@@ -288,6 +456,15 @@ async function installRole(role) {
 		}
 	}
 
+	// Install the canonical brief at a deterministic runtime path. The Lead must
+	// read $PI_CODING_AGENT_DIR/templates/TASK_BRIEF_V3.md, never search $HOME.
+	if (role === "lead") {
+		await installOwnedFile(
+			sourceTaskBriefTemplate,
+			path.join(roleHome, "templates", "TASK_BRIEF_V3.md"),
+		);
+	}
+
 	// Role-owned resource dirs (skills/, prompts/) — per-profile resources.
 	for (const dir of ["skills", "prompts"]) {
 		const src = path.join(sourceRole, dir);
@@ -365,24 +542,7 @@ async function which(bin) {
 	return "";
 }
 
-async function main() {
-	const problems = await checkPrereqs();
-	for (const problem of problems) {
-		console.warn(`warning: ${problem}`);
-	}
-
-	console.log(`\n== shared policy ==`);
-	await installOwnedFile(sourceSharedExt, installedSharedExt, 0o600);
-
-	for (const role of roles) {
-		console.log(`\n== role: ${role} ==`);
-		await installRole(role);
-	}
-
-	console.log(`\n== launcher ==`);
-	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);
-
-	console.log(`\n== paseo config ==`);
+async function preparePaseoConfig(profiles) {
 	const config = await readJsonOr(paseoConfigPath, {
 		$schema: "https://paseo.sh/schemas/paseo.config.v1.json",
 		version: 1,
@@ -392,9 +552,9 @@ async function main() {
 	config.daemon.mcp ??= {};
 	config.daemon.mcp.enabled = true;
 	config.daemon.mcp.injectIntoAgents = false;
+	mergeManagedAgentProfiles(config, profiles);
 	config.agents ??= {};
 	config.agents.providers ??= {};
-
 	for (const [id, desired] of Object.entries(providerConfig())) {
 		const current = config.agents.providers[id];
 		if (
@@ -408,6 +568,36 @@ async function main() {
 		}
 		config.agents.providers[id] = desired;
 	}
+	return config;
+}
+
+async function main() {
+	const problems = await checkPrereqs();
+	for (const problem of problems) {
+		console.warn(`warning: ${problem}`);
+	}
+	// Resolve the exact host model before writing anything. Discovery failure is
+	// fatal so an interrupted install cannot leave provider-only profiles behind.
+	assertAgentProfilesPaseoVersion();
+	const profileDefault = discoverAgentProfileDefault();
+	const profiles = managedAgentProfiles(profileDefault);
+	const config = await preparePaseoConfig(profiles);
+	console.log(
+		`Agent Profiles: Pi host default ${profileDefault.model}${profileDefault.thinkingOptionId ? ` (${profileDefault.thinkingOptionId})` : ""}`,
+	);
+
+	console.log(`\n== shared policy ==`);
+	await installOwnedFile(sourceSharedExt, installedSharedExt, 0o600);
+
+	for (const role of roles) {
+		console.log(`\n== role: ${role} ==`);
+		await installRole(role);
+	}
+
+	console.log(`\n== launcher ==`);
+	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);
+
+	console.log(`\n== paseo config ==`);
 	await writeJsonAtomic(paseoConfigPath, config);
 
 	console.log(`\n== orchestration preferences ==`);
@@ -438,6 +628,11 @@ async function main() {
 	console.log("Finish active agents before refreshing/restarting Paseo.");
 	console.log("Then verify with: paseo provider ls --json");
 	console.log("And: paseo provider models pi-lead --json");
+	console.log(
+		dryRun
+			? "Managed Pi Agent Profiles would be merged; Human-owned profiles would be preserved."
+			: "Managed Pi Agent Profiles were merged; Human-owned profiles were preserved.",
+	);
 	if (problems.length) {
 		console.log("\nResolve the warnings above before relying on the pack.");
 	}

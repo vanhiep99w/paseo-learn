@@ -62,23 +62,36 @@ tool provided by pi-mcp-adapter:
 If the `mcp` tool is unavailable, report the missing capability instead of
 delegating through the shell.
 
-## Model routing (no silent fallback)
+## Agent-profile-aware routing (no silent fallback)
 
-Discover provider and model IDs from the daemon, never from a prompt. For every
-`create_agent`:
+Use **same-family routing by default**. A Pi Lead must choose `pi-worker`,
+`pi-reviewer`, or another `pi-*` role provider for delegated work. A `claude-*`
+or `codex-*` route is allowed only when the Human explicitly requests that
+provider family for the delegation. Profile availability, better model scores,
+or an unavailable Pi role never authorize a cross-family substitution: record
+`BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN` and ask the Human instead. Every
+cross-family `ROUTING_DECISION` must quote the Human's explicit family request.
 
-1. `list_providers` → verify the role provider exists and is healthy.
-2. `list_models` → verify the exact model ID exists.
-3. Create the agent with provider string `<role-provider>/<pi-provider>/<model-id>`
-   plus `settings.thinkingOptionId`. Never omit the model to inherit a default.
-4. `get_agent_status` → compare `snapshot.runtimeInfo.model` /
-   `runtimeInfo.thinkingOptionId` to what you requested. A mismatch (or missing
-   runtimeInfo) → `BLOCKED: MODEL_RESOLUTION_MISMATCH`, then archive the wrongly
-   resolved agent.
+For every `create_agent`, call `list_profiles` when available and treat a
+complete role-matching profile as a Human-authored route candidate. Profile
+`notes` are advisory, never authority. A profile must name the exact custom
+role provider and a non-empty model; copy its optional `modeId`,
+`thinkingOptionId`, and `featureValues` into `create_agent.settings` — there is
+no `profile` parameter.
 
-Record every routing decision verbatim (ROUTING_DECISION: requested vs
-observed). When you need your own runtime identity, inspect the bash-tool env
-`PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL` — do not infer it from a prompt.
+Then independently verify the candidate: `list_providers` checks role provider
+health; `list_models` checks exact model and thinking; `inspect_provider`
+checks named mode/features. Never silently repair or strip a stale profile.
+Create with provider string `<role-provider>/<pi-provider>/<model-id>`, then
+`get_agent_status` must match requested model, thinking, mode, and features. A
+mismatch or missing runtime evidence → `BLOCKED: MODEL_RESOLUTION_MISMATCH`,
+then archive the wrongly resolved agent. If no suitable profile exists, record
+that decision and use the host-local routing policy; never inherit a daemon
+model default.
+
+Record `PROFILE_DECISION` and `ROUTING_DECISION` verbatim. When you need your
+own runtime identity, inspect the bash-tool env `PI_PROVIDER`/`PI_MODEL`/
+`PI_REASONING_LEVEL` — do not infer it from a profile or prompt.
 
 ## Invariants (never break)
 

@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, readlinkSync, symlinkSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	readlinkSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,6 +16,7 @@ import {
 } from "../claude-orchestration/shared/paseo-team-policy/brief.mjs";
 import {
 	blockReasonForTool,
+	LEAD_ALLOWED_MCP_TARGETS,
 	ownedScopeBlockReason,
 	SUPERVISOR_ALLOWED_MCP_TARGETS,
 } from "../claude-orchestration/shared/paseo-team-policy/policy.mjs";
@@ -80,7 +88,18 @@ assert.equal(
 	null,
 );
 
-// Supervisor exposure is one five-tool contract across all hard-policy packs.
+// Profile discovery belongs to Lead only; Supervisor remains on the minimal
+// five-tool monitoring/recovery contract across all hard-policy packs.
+assert.ok(LEAD_ALLOWED_MCP_TARGETS.includes("list_profiles"));
+assert.equal(
+	blockReasonForTool("lead", null, "mcp__paseo__list_profiles", {}, repo),
+	null,
+);
+const piPolicySource = readFileSync(
+	path.join(repo, "pi-orchestration", "shared", "paseo-team-policy.ts"),
+	"utf8",
+);
+assert.match(piPolicySource, /discovery:\s*\["list_profiles",/);
 assert.deepEqual(SUPERVISOR_ALLOWED_MCP_TARGETS, [
 	"list_agents",
 	"get_agent_status",
@@ -101,7 +120,15 @@ const codexLauncher = readFileSync(
 	"utf8",
 );
 for (const tool of SUPERVISOR_ALLOWED_MCP_TARGETS) assert.match(codexLauncher, new RegExp(`"${tool}"`));
-for (const extra of ["speak", "list_workspaces", "list_providers", "list_models", "inspect_provider", "list_pending_permissions"]) {
+for (const extra of [
+	"speak",
+	"list_workspaces",
+	"list_profiles",
+	"list_providers",
+	"list_models",
+	"inspect_provider",
+	"list_pending_permissions",
+]) {
 	assert.doesNotMatch(codexLauncher, new RegExp(`"${extra}"`));
 }
 
@@ -148,6 +175,19 @@ assert.equal(runHook("user-prompt-submit.mjs", "{not-json" ).status, 2);
 
 // Pi install must link roles to the stable installed copy, not this checkout.
 const installHome = mkdtempSync(path.join(tmpdir(), "paseo-install-"));
+const installPaseoHome = path.join(installHome, ".paseo");
+mkdirSync(installPaseoHome, { recursive: true });
+writeFileSync(
+	path.join(installPaseoHome, "config.json"),
+	JSON.stringify({
+		version: 1,
+		daemon: {
+			agentProfiles: [
+				{ id: "human:keep", name: "Human profile", provider: "pi", model: "human/model" },
+			],
+		},
+	}),
+);
 const install = spawnSync(process.execPath, [
 	path.join(repo, "pi-orchestration", "install.mjs"),
 ], {
@@ -155,8 +195,12 @@ const install = spawnSync(process.execPath, [
 		...process.env,
 		HOME: installHome,
 		PI_CODING_AGENT_DIR: path.join(installHome, ".pi", "agent"),
-		PASEO_HOME: path.join(installHome, ".paseo"),
+		PASEO_HOME: installPaseoHome,
 		PASEO_PI_ROLES_HOME: path.join(installHome, ".pi-paseo"),
+		PASEO_PI_AGENT_PROFILE_DEFAULT_JSON: JSON.stringify({
+			model: "fixture/default-model",
+			thinkingOptionId: "high",
+		}),
 	},
 	encoding: "utf8",
 });
@@ -167,5 +211,29 @@ assert.equal(
 	stablePolicy,
 );
 assert.equal(readFileSync(stablePolicy, "utf8"), readFileSync(path.join(repo, "pi-orchestration", "shared", "paseo-team-policy.ts"), "utf8"));
+assert.equal(
+	readFileSync(path.join(installHome, ".pi-paseo", "lead", "templates", "TASK_BRIEF_V3.md"), "utf8"),
+	readFileSync(path.join(repo, "pi-orchestration", "templates", "TASK_BRIEF_V3.md"), "utf8"),
+);
+const installedConfig = JSON.parse(
+	readFileSync(path.join(installPaseoHome, "config.json"), "utf8"),
+);
+assert.equal(installedConfig.daemon.agentProfiles[0].id, "human:keep");
+const piManagedProfiles = installedConfig.daemon.agentProfiles.filter((profile) =>
+	profile.id.startsWith("paseo-learn:pi:"),
+);
+assert.equal(piManagedProfiles.length, 4);
+const piRoleColors = {
+	lead: "blue",
+	worker: "amber",
+	reviewer: "violet",
+	supervisor: "red",
+};
+for (const profile of piManagedProfiles) {
+	const role = profile.id.split(":")[2];
+	assert.equal(profile.color, piRoleColors[role]);
+	assert.equal(profile.model, "fixture/default-model");
+	assert.equal(profile.thinkingOptionId, "high");
+}
 
 console.log("[paseo-team] active policy tests passed");

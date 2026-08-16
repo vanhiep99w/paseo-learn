@@ -3,7 +3,9 @@
 The Codex role pack runs OpenAI's Codex CLI as a four-role team under Paseo. It
 is committed at `codex-orchestration/`. Shared concepts live in
 [../architecture.md](../architecture.md); this page covers what is specific to
-Codex.
+Codex. A Codex role profile/custom provider defines behavior and policy; it is
+not a Paseo **Agent Profile**, which is only a host-local runtime-settings
+preset.
 
 ## How role separation works
 
@@ -13,7 +15,7 @@ directory and launches Codex, so each role loads its own model, sandbox, and
 `developer_instructions` while sharing one `auth.json` (symlinked back to
 `~/.codex/auth.json`).
 
-The four profiles are the source of role behavior:
+The four Codex role profiles are the source of role behavior:
 
 | Provider | Profile | Model / thinking | File |
 |---|---|---|---|
@@ -69,9 +71,11 @@ root `./install codex` delegates to it). It:
 3. Copies the launcher to `$PASEO_HOME/bin` (default `~/.paseo/bin`).
 4. Merges four `codex-*` providers into `~/.paseo/config.json`, setting
    `daemon.mcp.injectIntoAgents = false` and `PASEO_MCP_ACCESS` on Lead/Supervisor.
-5. Merges `~/.paseo/orchestration-preferences.json` with pinned defaults
-   (`codex-worker/gpt-5.6-luna` for impl/ui/research/audit, `codex-lead/gpt-5.6-sol`
-   for planning).
+5. Merges `~/.paseo/orchestration-preferences.json` with pinned fallback
+   defaults (`codex-worker/gpt-5.6-luna` for impl/ui/research/audit,
+   `codex-lead/gpt-5.6-sol` for planning) plus the Agent Profile validation
+   contract. It does not write `daemon.agentProfiles`; those host-specific,
+   whole-list values remain Human-managed.
 6. Backs up JSON before changes; never restarts the daemon. Fails closed when a
    target differs unless `--force`.
 
@@ -89,10 +93,12 @@ Provider config shape (see the live merge logic in `providerConfig()`):
 - **Change Supervisor's exposed tools:** edit the `enabled_tools` list in the
   launcher. Keep `create_agent` gated to the lead-recovery shape — the
   Supervisor's instructions (not a sandbox) are what stop other shapes.
-- **Model catalog drift:** `gpt-5.6-*` IDs and thinking levels are defaults that
-  must exist on the account/daemon. Always discover with `paseo provider models
+- **Model catalog drift:** `gpt-5.6-*` IDs, thinking levels, and saved Agent
+  Profiles can become stale. Always discover with `paseo provider models
   codex-<role> --json` before assuming a model exists. Luna does not expose
-  `ultra`; Sol does. (§9 of the codex guide.)
+  `ultra`; Sol does. A Lead must reject an invalid profile rather than silently
+  repair it. Codex Lead routes to `codex-*` by default; cross-family requires an
+  explicit Human request. (§9 of the codex guide; `docs/agent-profiles.md`.)
 - **No security boundary:** full access + instruction-only enforcement means a
   process can still write files or call the local MCP HTTP endpoint directly.
   This is intentional for trusted machines; see [../architecture.md](../architecture.md#capability-is-not-authority).
@@ -103,4 +109,5 @@ Provider config shape (see the live merge logic in `providerConfig()`):
 - `codex-orchestration/bin/codex-role-app-server` — selective MCP injection + supervisor allowlist.
 - `codex-orchestration/install.mjs` — `providerConfig()`, `defaultPreferences`, `installRoleConfig()` (preserves `[projects.*]` trust).
 - `docs/codex-profiles-paseo-guide-vi.md` — the operational guide this pack follows.
+- `docs/agent-profiles.md` — host Agent Profile setup and the mandatory validation cycle.
 - `tai-lieu-tham-khao/config/paseo.codex-providers.example.json` — the provider template the installer mirrors.

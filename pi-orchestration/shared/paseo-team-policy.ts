@@ -65,7 +65,7 @@ export function detectRole(): TeamRole | undefined {
 // ---------------------------------------------------------------------------
 
 export const PASEO_TOOLS = {
-	discovery: ["list_providers", "list_models", "inspect_provider"],
+	discovery: ["list_profiles", "list_providers", "list_models", "inspect_provider"],
 	workspace: ["create_workspace", "list_workspaces", "archive_workspace"],
 	monitoring: ["list_agents", "get_agent_status", "get_agent_activity"],
 	orchestration: [

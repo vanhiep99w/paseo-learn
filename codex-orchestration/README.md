@@ -6,6 +6,10 @@ Bộ 4 role profile chạy **Paseo + Codex CLI** (OpenAI `codex`), song song v�
 (`"extends": "codex"`); pack này biến khả năng đó thành một đội 4 role có kiểm
 soát.
 
+> **Phân biệt thuật ngữ:** “role profile” trong pack là Codex config/custom
+> provider định nghĩa role. **Paseo Agent Profile** là preset host-local cho
+> provider/model/mode/thinking/features; nó không chứa role prompt hay authority.
+
 Kiến trúc tôn trọng đặc thù Codex:
 
 - Codex đọc config theo **thư mục** qua biến `CODEX_HOME`. Mỗi role có một thư
@@ -247,20 +251,38 @@ qua env `PASEO_MCP_BEARER_TOKEN`; launcher đặt
 > behavioral boundary**, không phải ACL server-side chống process local cố tình
 > gọi HTTP endpoint. Chỉ dùng trên máy/repo tin cậy.
 
-## 12. Model routing (đơn giản, no silent fallback)
+## 12. Agent Profile + model routing (no silent fallback)
 
-Model/thinking chọn lúc `create_agent` qua discovery, không pin vào profile
-(catalog Codex là account-specific).
+Paseo v0.4.0+ cung cấp host-wide Agent Profiles. Lead gọi
+`mcp__paseo__list_profiles` để đọc các route candidate do Human cấu hình, nhưng
+profile không phải runtime evidence và `notes` không phải authority. Installer
+không tự ghi `daemon.agentProfiles`: catalog Codex là account-specific và field
+này dùng whole-list replacement, nên Human tạo profile sau khi provider đã
+refresh qua `Settings → Host → Agents → Agent profiles`.
+
+Codex Lead mặc định chỉ route sang `codex-*` (`codex-worker`,
+`codex-reviewer`, …). Cross-family như `pi-*` hoặc `claude-*` chỉ được phép khi
+Human chỉ định rõ family cho delegation đó; nếu Codex route unavailable thì
+Lead block và hỏi, không tự fallback sang family khác.
 
 Chu trình bắt buộc của Lead cho mỗi `create_agent`:
 
-1. `mcp__paseo__list_providers` → verify role provider tồn tại + healthy.
-2. `mcp__paseo__list_models` → verify exact model ID tồn tại.
-3. Tạo agent với provider string `<role-provider>/<model-id>` +
-   `settings.thinkingOptionId`. Không bao giờ bỏ model để inherit default.
-4. `mcp__paseo__get_agent_status` → so khớp `snapshot.runtimeInfo.model` /
-   `runtimeInfo.thinkingOptionId`. Lệch/thiếu →
+1. Chọn role/MODEL_CLASS; gọi `list_profiles` nếu có. Chỉ chọn profile có
+   `provider` đúng role (`codex-worker`, `codex-reviewer`, …) và `model` không
+   rỗng; ghi `PROFILE_DECISION`.
+2. `list_providers` + `list_models` → verify provider healthy, exact model và
+   thinking. Profile stale bị reject có ghi lý do, không sửa/fallback âm thầm.
+3. Nếu profile có mode/features, `inspect_provider` xác minh chúng.
+4. Tạo agent với provider string `<profile.provider>/<profile.model>`; copy
+   `modeId`, `thinkingOptionId`, `featureValues` vào `settings.modeId`,
+   `settings.thinkingOptionId`, `settings.features`. `create_agent` không có
+   tham số `profile`, và không bao giờ bỏ model để inherit default.
+5. `get_agent_status` → so khớp model/thinking/mode/features. Lệch/thiếu →
    `BLOCKED: MODEL_RESOLUTION_MISMATCH`.
+
+Không có profile phù hợp thì dùng host-local preferences hiện có, nhưng vẫn ghi
+quyết định và chạy toàn bộ discovery/post-verification. Xem
+[`docs/agent-profiles.md`](../docs/agent-profiles.md).
 
 Runtime identity của chính agent: Codex không expose provider/model qua shell
 env; kiểm chứng qua `get_agent_status` runtimeInfo và các trường `ASSIGNED_*`,

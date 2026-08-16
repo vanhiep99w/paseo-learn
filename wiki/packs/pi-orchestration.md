@@ -3,9 +3,14 @@
 The Pi role pack runs the Pi CLI as a four-role team under Paseo. It lives at
 `pi-orchestration/` and is currently **uncommitted** in the working tree. It is
 the direct Pi counterpart of [codex-orchestration.md](codex-orchestration.md);
-shared concepts are in [../architecture.md](../architecture.md).
+shared concepts are in [../architecture.md](../architecture.md). A Pi role
+profile/custom provider defines behavior and enforcement; it is not a Paseo
+**Agent Profile**, which is only a host-local runtime-settings preset.
 
-Verified runtime: Pi 0.84.1, Paseo 0.2.5, pi-mcp-adapter 2.21.0.
+Base policy runtime was verified with Pi 0.84.1, Paseo 0.2.5, and
+pi-mcp-adapter 2.21.0. Agent Profile routing requires Paseo v0.4.0+; older
+daemons continue through explicit discovery and record
+`PROFILE_CATALOG_UNAVAILABLE`.
 
 ## How role separation works
 
@@ -104,16 +109,19 @@ monitoring/recovery allowlist enforced by the extension and Codex launcher.
 1. Copies the policy to the stable installed path
    `$PASEO_HOME/packs/pi-orchestration/paseo-team-policy.ts`.
 2. Creates four role homes; copies each role's `AGENTS.md`, `settings.json`,
-   `mcp.json` (lead/supervisor), mirrors `skills/`/`prompts/`, and links each
+   `mcp.json` (lead/supervisor), mirrors `skills/`/`prompts/`, installs the Lead
+   brief at `$PI_CODING_AGENT_DIR/templates/TASK_BRIEF_V3.md`, and links each
    role extension to that stable installed policy copy.
 3. Symlinks `auth.json`, `npm/`, `git/`, `models.json` from `~/.pi/agent/` so all
    roles share credentials, the `pi-mcp-adapter` package, and the model catalog.
 4. Copies the launcher to `$PASEO_HOME/bin/pi-role-app-server` (mode 0755).
-5. Merges four `pi-*` providers into `~/.paseo/config.json` with
-   `injectIntoAgents = false`; sets `PASEO_MCP_ACCESS` on Lead/Supervisor.
-6. Merges `~/.paseo/orchestration-preferences.json` (discovery-oriented — no
-   pinned models, since Pi inventory is host-specific).
-7. Checks prerequisites (`pi`, `paseo`, `pi-mcp-adapter`, `auth.json`), backs up
+5. Queries the ordered `pi` model catalog and resolves its first/default model
+   plus default thinking before writing anything.
+6. Merges four `pi-*` providers and four namespaced host-default Agent Profiles
+   into `~/.paseo/config.json` with `injectIntoAgents = false`; Human profiles
+   are preserved, and managed drift fails unless `--force`.
+7. Merges `~/.paseo/orchestration-preferences.json` as fallback routing.
+8. Checks prerequisites (`pi`, `paseo`, `pi-mcp-adapter`, `auth.json`), backs up
    JSON, never restarts the daemon. Fails closed on differing targets unless
    `--force`.
 
@@ -139,6 +147,12 @@ monitoring/recovery allowlist enforced by the extension and Codex launcher.
   boundary rather than filesystem isolation.
 - **No sandbox:** Pi has none. Full access + extension + `includeTools` are
   behavioral boundaries, not ACLs (see [../architecture.md](../architecture.md#capability-is-not-authority)).
+- **Agent Profiles:** Paseo v0.4.0+ installers create four namespaced profiles
+  from the host's first/default `pi` model. Leads call `list_profiles`, then
+  still validate with `list_providers`, `list_models`, `inspect_provider`, and
+  `get_agent_status`. Pi Lead routes to `pi-*` by default; cross-family requires
+  an explicit Human request. A profile never grants authority; see
+  `docs/agent-profiles.md`.
 - **End-to-end not yet exercised:** this pack is uncommitted and has not been run
   through a real Lead→Worker→Reviewer flow; the enforcement unit logic is
   verified, the Paseo delegation path is not. Treat as beta.
@@ -152,3 +166,4 @@ monitoring/recovery allowlist enforced by the extension and Codex launcher.
 - `pi-orchestration/templates/TASK_BRIEF_V3.md` — canonical brief template.
 - `pi-orchestration/config/paseo.providers.example.json` — provider template.
 - `pi-orchestration/README.md` — pack README (Vietnamese).
+- `docs/agent-profiles.md` — host Agent Profile setup and the mandatory validation cycle.

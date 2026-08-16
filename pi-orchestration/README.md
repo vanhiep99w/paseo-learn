@@ -7,8 +7,13 @@ Kiến trúc tôn trọng đặc thù Pi: **Pi không có MCP built-in** (cần
 + tool policy), và cấu hình role qua **`PI_CODING_AGENT_DIR`** (tương đương
 `CODEX_HOME` của Codex).
 
-Ngày kiểm chứng runtime: Pi 0.84.1, Paseo CLI/daemon 0.2.5, pi-mcp-adapter
-2.21.0, Linux.
+> **Phân biệt thuật ngữ:** “role profile” trong pack là Pi role home/custom
+> provider định nghĩa role. **Paseo Agent Profile** là preset host-local cho
+> provider/model/mode/thinking/features; nó không chứa role prompt hay authority.
+
+Policy/runtime cơ bản đã kiểm chứng với Pi 0.84.1, Paseo CLI/daemon 0.2.5,
+pi-mcp-adapter 2.21.0 trên Linux. Luồng Agent Profile cần Paseo v0.4.0+;
+daemon cũ tiếp tục routing bằng discovery và ghi `PROFILE_CATALOG_UNAVAILABLE`.
 
 ## 1. Triết lý và điểm khác với codex-orchestration
 
@@ -67,7 +72,8 @@ Yêu cầu:
 
 ```bash
 command -v pi
-command -v paseo
+paseo --version                 # phải là v0.4.0+
+paseo status                    # daemon phải chạy để query catalog `pi`
 pi install npm:pi-mcp-adapter   # nếu chưa có
 pi                              # /login lần đầu để có ~/.pi/agent/auth.json
 ```
@@ -92,10 +98,11 @@ Installer:
    `extensions/paseo-team-policy.ts` của mỗi role về bản cài ổn định đó.
 3. Symlink `auth.json`, `npm/`, `git/`, `models.json` về `~/.pi/agent/`.
 4. Copy launcher vào `$PASEO_HOME/bin` (mặc định `~/.paseo/bin`).
-5. Merge 4 provider vào `~/.paseo/config.json`, đặt
+5. Query model catalog `pi`, rồi merge 4 provider và 4 namespaced Agent
+   Profiles vào `~/.paseo/config.json`; đặt
    `daemon.mcp.injectIntoAgents = false`, chỉ cấp Paseo MCP cho Lead/Supervisor
    qua env `PASEO_MCP_ACCESS` + launcher.
-6. Merge `~/.paseo/orchestration-preferences.json` (hướng discovery, không pin model).
+6. Merge `~/.paseo/orchestration-preferences.json` làm fallback routing.
 7. Backup JSON trước khi thay đổi. **Không restart Paseo daemon.**
 
 Nếu file/provider cùng tên đã có nội dung khác, installer fail closed. Đọc diff
@@ -214,22 +221,41 @@ bearer authentication, truyền secret qua env `PASEO_MCP_BEARER_TOKEN` và thê
 > không phải ACL server-side chống process local cố tình gọi HTTP endpoint.
 > Chỉ dùng trên máy/repo tin cậy.
 
-## 10. Model routing (đơn giản, no silent fallback)
+## 10. Agent Profile + model routing (no silent fallback)
 
-Khác pi-pack cũ (4 lớp phức tạp), bộ này đơn giản như codex: model/thinking chọn
-lúc `create_agent` qua discovery, không pin vào profile.
+Paseo v0.4.0+ cung cấp host-wide Agent Profiles. Lead gọi `list_profiles` để
+đọc các route candidate, nhưng profile không phải runtime evidence và `notes`
+không phải authority. Installer query ordered catalog `pi`, chọn model
+đầu tiên/default cùng default thinking, rồi merge bốn managed profiles
+`paseo-learn:pi:*:host-default` vào `daemon.agentProfiles`. Human profiles được
+giữ nguyên; managed profile khác biệt làm install fail trừ khi có `--force`.
+
+Pi Lead mặc định chỉ route sang `pi-*` (`pi-worker`, `pi-reviewer`, …).
+Cross-family như `claude-*` hoặc `codex-*` chỉ được phép khi Human chỉ định rõ
+family cho delegation đó; nếu Pi route unavailable thì Lead block và hỏi, không
+tự fallback sang family khác.
 
 Chu trình bắt buộc của Lead cho mỗi `create_agent`:
 
-1. `list_providers` → verify role provider tồn tại + healthy.
-2. `list_models` → verify exact model ID tồn tại.
-3. Tạo agent với provider string `<role-provider>/<pi-provider>/<model-id>` +
-   `settings.thinkingOptionId`. Không bao giờ bỏ model để inherit default.
-4. `get_agent_status` → so khớp `snapshot.runtimeInfo.model` /
-   `runtimeInfo.thinkingOptionId`. Lệch/thiếu → `BLOCKED: MODEL_RESOLUTION_MISMATCH`.
+1. Chọn role/MODEL_CLASS; gọi `list_profiles` nếu có. Chỉ chọn profile có
+   `provider` đúng role (`pi-worker`, `pi-reviewer`, …) và `model` không rỗng;
+   ghi `PROFILE_DECISION`.
+2. `list_providers` + `list_models` → verify provider healthy, exact model và
+   thinking. Profile stale bị reject có ghi lý do, không sửa/fallback âm thầm.
+3. Nếu profile có mode/features, `inspect_provider` xác minh chúng.
+4. Tạo agent với provider string `<profile.provider>/<profile.model>`; copy
+   `modeId`, `thinkingOptionId`, `featureValues` vào `settings.modeId`,
+   `settings.thinkingOptionId`, `settings.features`. `create_agent` không có
+   tham số `profile`, và không bao giờ bỏ model để inherit default.
+5. `get_agent_status` → so khớp model/thinking/mode/features. Lệch/thiếu →
+   `BLOCKED: MODEL_RESOLUTION_MISMATCH`.
+
+Không có profile phù hợp thì dùng host-local preferences hiện có, nhưng vẫn ghi
+quyết định và chạy toàn bộ discovery/post-verification. Xem
+[`docs/agent-profiles.md`](../docs/agent-profiles.md).
 
 Runtime identity của chính agent: inspect bash-tool env `PI_PROVIDER` /
-`PI_MODEL` / `PI_REASONING_LEVEL` — đừng suy ra từ prompt.
+`PI_MODEL` / `PI_REASONING_LEVEL` — đừng suy ra từ profile hoặc prompt.
 
 ## 11. Cấu trúc thư mục
 
@@ -251,7 +277,21 @@ pi-orchestration/
 └── install.mjs  (trong pi-orchestration/; chạy qua ./install pi ở repo root, song song codex-orchestration/install.mjs)
 ```
 
+Installer copy template vào đường dẫn runtime cố định
+`$PI_CODING_AGENT_DIR/templates/TASK_BRIEF_V3.md` của Lead. Lead không được quét
+`$HOME` bằng `find` để tìm source checkout.
+
 ## 12. Troubleshooting
+
+### `find ... TASK_BRIEF_V3.md` bị timeout
+
+Đây là broad filesystem scan, không phải Paseo MCP failure. Cài lại pack rồi
+kiểm tra deterministic path:
+
+```bash
+./install pi --force
+test -f ~/.pi-paseo/lead/templates/TASK_BRIEF_V3.md
+```
 
 ### Provider không xuất hiện
 - `jq . ~/.paseo/config.json` (hoặc `cat`), kiểm tra absolute wrapper path.

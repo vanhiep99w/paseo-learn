@@ -104,6 +104,7 @@ the narrowest non-destructive check; broader checks are noted.
 | Change a role's behavior (Claude) | [packs/claude-orchestration.md](packs/claude-orchestration.md) | `claude-orchestration/profiles/<role>/CLAUDE.md` + `shared/paseo-team-policy/policy.mjs` | `node --check claude-orchestration/shared/paseo-team-policy/*.mjs`; PreToolUse stdin smoke (see pack README §15) |
 | Change which Paseo MCP tools a role sees | [architecture.md](architecture.md#selective-mcp-injection) | Codex: `codex-orchestration/bin/codex-role-app-server` (`enabled_tools`); Pi: `pi-orchestration/profiles/<role>/mcp.json` (`includeTools`); Claude: `claude-orchestration/shared/paseo-team-policy/policy.mjs` (`SUPERVISOR_ALLOWED_MCP_TARGETS`, hook-enforced) | `paseo provider ls --json` after daemon restart |
 | Change default provider/model preferences | [packs/codex-orchestration.md](packs/codex-orchestration.md) / [packs/pi-orchestration.md](packs/pi-orchestration.md) / [packs/claude-orchestration.md](packs/claude-orchestration.md) | `<pack>/install.mjs` (`providerConfig`, `defaultPreferences`) | `./install <pack> --dry-run` |
+| Change Agent Profile routing/install policy | [architecture.md](architecture.md#no-silent-fallback-agent-profiles--model-routing) | `docs/agent-profiles.md` + Pi/Claude `install.mjs` + active Lead prompt/skill | `node test/agent-profile-routing.test.mjs` |
 | Add a per-role skill (Pi) | [packs/pi-orchestration.md](packs/pi-orchestration.md#per-role-resources) | `pi-orchestration/profiles/<role>/skills/` | `PI_CODING_AGENT_DIR=~/.pi-paseo/<role> pi` → skill appears in `/skill:` |
 | Add a per-role skill (Claude) | [packs/claude-orchestration.md](packs/claude-orchestration.md) | `claude-orchestration/profiles/<role>/skills/` | `CLAUDE_CONFIG_DIR=~/.claude-paseo/<role> claude` → skill loads |
 | Fix/extend model routing (reference pack) | [packs/reference-pack.md](packs/reference-pack.md) | `tai-lieu-tham-khao/scripts/model-routing.mjs` | `node tai-lieu-tham-khao/test/model-routing.test.mjs` |
@@ -118,6 +119,8 @@ the narrowest non-destructive check; broader checks are noted.
 - `docs/codex-profiles-paseo-guide-vi.md` — operational guide for the Codex pack.
 - `docs/model-routing.md` — the four-layer model-routing contract and verified
   commands.
+- `docs/agent-profiles.md` — Paseo v0.4.0+ host profiles, MCP mapping, and the
+  profile-aware no-silent-fallback cycle.
 - `docs/multi-host.md` — N-host routing and the manual cross-host test plan.
 - `docs/implementation-report-model-routing.md` — what was fixed and why.
 - `docs/demonthorn-agent-orchestration-deep-dive.md` and

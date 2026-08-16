@@ -4,7 +4,9 @@ The Claude Code role pack runs Anthropic's `claude` CLI as a four-role team
 under Paseo. It lives at `claude-orchestration/` and is the direct Claude
 counterpart of [codex-orchestration.md](codex-orchestration.md) and
 [pi-orchestration.md](pi-orchestration.md); shared concepts are in
-[../architecture.md](../architecture.md).
+[../architecture.md](../architecture.md). A Claude role profile/custom provider
+defines behavior and enforcement; it is not a Paseo **Agent Profile**, which is
+only a host-local runtime-settings preset.
 
 Status: **spec-grade**. Paseo supports a native `claude` provider
 (`"extends": "claude"`), but on hosts where the `claude` CLI or its provider is
@@ -122,17 +124,20 @@ per-tool `includeTools` field, unlike Pi's `mcp.json`).
 `claude-orchestration/install.mjs` (run via `./install claude`):
 
 1. Creates four role homes; copies each role's `CLAUDE.md`, `settings.json`,
-   mirrors `skills/`/`prompts/`.
+   mirrors `skills/`/`prompts/`, and installs the Lead brief at
+   `$CLAUDE_CONFIG_DIR/templates/TASK_BRIEF_V3.md`.
 2. Copies `shared/paseo-team-policy/*.mjs` into each role's `hooks/`.
 3. Symlinks `~/.claude/.credentials.json` into each role (Linux/Windows) so all
    roles share one login. On macOS (Keychain) it logs a warning — set
    `ANTHROPIC_API_KEY` in the provider env, or run `claude` once per role home.
 4. Copies the launcher to `$PASEO_HOME/bin/claude-role-app-server` (mode 0755).
-5. Merges four `claude-*` providers into `~/.paseo/config.json` with
-   `injectIntoAgents = false`; sets `PASEO_MCP_ACCESS` on Lead/Supervisor.
-6. Merges `~/.paseo/orchestration-preferences.json` (discovery-oriented — no
-   pinned models, since the Claude model catalog is account/plan-specific).
-7. Checks prerequisites (`claude`, `paseo`, `.credentials.json`), backs up
+5. Queries the ordered `claude` model catalog and resolves its first/default
+   model plus default thinking before writing anything.
+6. Merges four `claude-*` providers and four namespaced host-default Agent
+   Profiles into `~/.paseo/config.json` with `injectIntoAgents = false`; Human
+   profiles are preserved, and managed drift fails unless `--force`.
+7. Merges `~/.paseo/orchestration-preferences.json` as fallback routing.
+8. Checks prerequisites (`claude`, `paseo`, `.credentials.json`), backs up
    JSON, never restarts the daemon. Fails closed on differing targets unless
    `--force`.
 
@@ -156,6 +161,12 @@ per-tool `includeTools` field, unlike Pi's `mcp.json`).
   Claude Code plan mode. Hooks + `permissions.deny` are behavioral boundaries,
   not OS-level ACLs (see
   [../architecture.md](../architecture.md#capability-is-not-authority)).
+- **Agent Profiles:** Paseo v0.4.0+ installers create four namespaced profiles
+  from the host's first/default `claude` model. Leads call `list_profiles`, then
+  still validate with `list_providers`, `list_models`, `inspect_provider`, and
+  `get_agent_status`. Claude Lead routes to `claude-*` by default; cross-family
+  requires an explicit Human request. A profile never grants authority; see
+  `docs/agent-profiles.md`.
 - **Live verification outstanding:** the enforcement logic is smoke-tested; the
   real Lead→Worker→Reviewer flow under Paseo is not yet exercised (claude
   provider may be unavailable). Treat as beta.
@@ -170,3 +181,4 @@ per-tool `includeTools` field, unlike Pi's `mcp.json`).
 - `claude-orchestration/templates/TASK_BRIEF_V3.md` — canonical brief template.
 - `claude-orchestration/config/paseo.providers.example.json` — provider template.
 - `claude-orchestration/README.md` — pack README (Vietnamese).
+- `docs/agent-profiles.md` — host Agent Profile setup and the mandatory validation cycle.

@@ -6,6 +6,10 @@ song với [`codex-orchestration/`](../codex-orchestration) và
 (`"extends": "claude"`); pack này biến khả năng đó thành một đội 4 role có kiểm
 soát.
 
+> **Phân biệt thuật ngữ:** “role profile” trong pack là Claude role home/custom
+> provider định nghĩa role. **Paseo Agent Profile** là preset host-local cho
+> provider/model/mode/thinking/features; nó không chứa role prompt hay authority.
+
 Kiến trúc tôn trọng đặc thù Claude Code:
 
 - Claude Code đọc config theo **thư mục** qua biến `CLAUDE_CONFIG_DIR` (tương đương
@@ -117,7 +121,8 @@ Yêu cầu:
 
 ```bash
 command -v claude
-command -v paseo
+paseo --version   # phải là v0.4.0+
+paseo status      # daemon phải chạy để query catalog `claude`
 claude            # /login lần đầu để có ~/.claude/.credentials.json (Linux/Windows)
 ```
 
@@ -141,11 +146,11 @@ Installer:
 3. Symlink `~/.claude/.credentials.json` về mỗi role (Linux/Windows) để dùng
    chung login.
 4. Copy launcher vào `$PASEO_HOME/bin` (mặc định `~/.paseo/bin`).
-5. Merge 4 provider vào `~/.paseo/config.json`, đặt
+5. Query model catalog `claude`, rồi merge 4 provider và 4 namespaced Agent
+   Profiles vào `~/.paseo/config.json`; đặt
    `daemon.mcp.injectIntoAgents = false`, chỉ cấp Paseo MCP cho Lead/Supervisor
    qua env `PASEO_MCP_ACCESS` + launcher.
-6. Merge `~/.paseo/orchestration-preferences.json` (hướng discovery, không pin
-   model — catalog Claude là account/plan-specific).
+6. Merge `~/.paseo/orchestration-preferences.json` làm fallback routing.
 7. Backup JSON trước khi thay đổi. **Không restart Paseo daemon.**
 
 Nếu file/provider cùng tên đã có nội dung khác, installer fail closed. Đọc diff
@@ -262,19 +267,39 @@ không nằm trong argv).
 > boundary**, không phải ACL server-side chống process local cố tình gọi HTTP
 > endpoint. Chỉ dùng trên máy/repo tin cậy.
 
-## 11. Model routing (đơn giản, no silent fallback)
+## 11. Agent Profile + model routing (no silent fallback)
 
-Model/thinking chọn lúc `create_agent` qua discovery, không pin vào profile (catalog
-Claude là account/plan-specific).
+Paseo v0.4.0+ cung cấp host-wide Agent Profiles. Lead gọi
+`mcp__paseo__list_profiles` để đọc các route candidate, nhưng profile không phải
+runtime evidence và `notes` không phải authority. Installer query ordered
+catalog `claude`, chọn model đầu tiên/default cùng default thinking, rồi merge
+bốn managed profiles `paseo-learn:claude:*:host-default` vào
+`daemon.agentProfiles`. Human profiles được giữ nguyên; managed profile khác
+biệt làm install fail trừ khi có `--force`.
+
+Claude Lead mặc định chỉ route sang `claude-*` (`claude-worker`,
+`claude-reviewer`, …). Cross-family như `pi-*` hoặc `codex-*` chỉ được phép khi
+Human chỉ định rõ family cho delegation đó; nếu Claude route unavailable thì
+Lead block và hỏi, không tự fallback sang family khác.
 
 Chu trình bắt buộc của Lead cho mỗi `create_agent`:
 
-1. `mcp__paseo__list_providers` → verify role provider tồn tại + healthy.
-2. `mcp__paseo__list_models` → verify exact model ID tồn tại.
-3. Tạo agent với provider string `<role-provider>/<provider>/<model-id>` +
-   `settings.thinkingOptionId`. Không bao giờ bỏ model để inherit default.
-4. `mcp__paseo__get_agent_status` → so khớp `snapshot.runtimeInfo.model` /
-   `runtimeInfo.thinkingOptionId`. Lệch/thiếu → `BLOCKED: MODEL_RESOLUTION_MISMATCH`.
+1. Chọn role/MODEL_CLASS; gọi `list_profiles` nếu có. Chỉ chọn profile có
+   `provider` đúng role (`claude-worker`, `claude-reviewer`, …) và `model` không
+   rỗng; ghi `PROFILE_DECISION`.
+2. `list_providers` + `list_models` → verify provider healthy, exact model và
+   thinking. Profile stale bị reject có ghi lý do, không sửa/fallback âm thầm.
+3. Nếu profile có mode/features, `inspect_provider` xác minh chúng.
+4. Tạo agent với provider string `<profile.provider>/<profile.model>`; copy
+   `modeId`, `thinkingOptionId`, `featureValues` vào `settings.modeId`,
+   `settings.thinkingOptionId`, `settings.features`. `create_agent` không có
+   tham số `profile`, và không bao giờ bỏ model để inherit default.
+5. `get_agent_status` → so khớp model/thinking/mode/features. Lệch/thiếu →
+   `BLOCKED: MODEL_RESOLUTION_MISMATCH`.
+
+Không có profile phù hợp thì dùng host-local preferences hiện có, nhưng vẫn ghi
+quyết định và chạy toàn bộ discovery/post-verification. Xem
+[`docs/agent-profiles.md`](../docs/agent-profiles.md).
 
 Runtime identity của chính agent: Claude Code không expose provider/model qua
 shell env như Pi; kiểm chứng qua `get_agent_status` runtimeInfo và các trường
@@ -305,7 +330,21 @@ claude-orchestration/
 └── install.mjs  (chạy qua ./install claude ở repo root, song song codex/pi)
 ```
 
+Installer copy template vào đường dẫn runtime cố định
+`$CLAUDE_CONFIG_DIR/templates/TASK_BRIEF_V3.md` của Lead. Lead không được quét
+`$HOME` bằng `find` để tìm source checkout.
+
 ## 13. Troubleshooting
+
+### `find ... TASK_BRIEF_V3.md` bị timeout
+
+Đây là broad filesystem scan, không phải Paseo MCP failure. Cài lại pack rồi
+kiểm tra deterministic path:
+
+```bash
+./install claude --force
+test -f ~/.claude-paseo/lead/templates/TASK_BRIEF_V3.md
+```
 
 ### Provider không xuất hiện
 - `jq . ~/.paseo/config.json` (hoặc `cat`), kiểm tra absolute wrapper path và

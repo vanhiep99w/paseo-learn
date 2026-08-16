@@ -147,21 +147,37 @@ Known limitation: this is a capability-exposure boundary, not a server-side ACL.
 for Codex); if a Paseo build does not export it, the launcher leaves the URL unset
 and the role's MCP fails closed rather than impersonating another agent.
 
-## No silent fallback (model routing)
+## No silent fallback (Agent Profiles + model routing)
 
-Models are chosen at `create_agent` time from daemon discovery and verified
-against runtime evidence — they are never pinned into a shared profile, because
-model catalogs are host-specific. The mandatory cycle (see the Lead skill,
+Paseo v0.4.0+ Agent Profiles are optional, host-wide route candidates configured
+by the Human. They may pin provider/model/mode/thinking/features because they
+live with one daemon's catalog, but they are neither runtime evidence nor role
+authority. Profile `notes` are advisory. Pi/Claude installers merge four
+namespaced, host-default profiles into `daemon.agentProfiles`, preserving every
+Human-owned entry and failing on managed-profile drift unless `--force`. Codex
+profiles remain Human-managed. Same-family routing is mandatory by default:
+Pi Lead selects `pi-*`, Claude Lead selects `claude-*`, and Codex Lead selects
+`codex-*`. Cross-family routing requires an explicit Human request for that
+provider family; an unavailable same-family role blocks rather than silently
+switching families. See [../docs/agent-profiles.md](../docs/agent-profiles.md).
+
+The mandatory cycle (see the Lead skill,
 `pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md`):
 
-1. `list_providers` → role provider exists and is healthy.
-2. `list_models` → exact `<pi-provider>/<model-id>` exists.
-3. `create_agent` with provider string `<role-provider>/<pi-provider>/<model-id>`
-   and `settings.thinkingOptionId`. Paseo splits the provider string at the
-   **first** slash, so multi-segment model IDs work.
-4. `get_agent_status` → compare `snapshot.runtimeInfo.model` /
-   `runtimeInfo.thinkingOptionId` to the request. Mismatch or missing runtimeInfo
-   → `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrongly-resolved agent.
+1. Choose role/MODEL_CLASS; call `list_profiles` when available and record a
+   complete role-matching candidate or the reason none was selected.
+2. `list_providers` → role provider exists and is healthy.
+3. `list_models` → exact model and thinking option exist. If a profile names
+   mode/features, `inspect_provider` validates those fields. Reject stale
+   profiles without silently stripping or substituting values.
+4. `create_agent` with provider string `<profile.provider>/<profile.model>` (or
+   the equivalently validated host-local route), copying profile `modeId`,
+   `thinkingOptionId`, and `featureValues` into `settings`. Paseo has no
+   `profile` parameter and splits the provider string at the **first** slash, so
+   multi-segment model IDs work.
+5. `get_agent_status` → compare requested model/thinking/mode/features against
+   runtime state. Mismatch or missing evidence →
+   `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrongly-resolved agent.
 
 The Lead owns **observed** routing evidence; Workers only echo the `ASSIGNED_*`
 fields and escalate `MODEL_MISMATCH` if they detect a discrepancy — they never
