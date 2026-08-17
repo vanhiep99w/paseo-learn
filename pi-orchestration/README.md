@@ -10,6 +10,13 @@ Paseo. Paseo là control plane duy nhất; orchestration đi qua wrapper
 pi                 # /login nếu cần
 ./install pi --dry-run
 ./install pi
+
+# Windows PowerShell / cmd.exe
+.\install.cmd pi --dry-run
+.\install.cmd pi
+
+# Portable
+node install.mjs pi --dry-run
 ```
 
 Installer tạo các role home dưới `~/.pi-paseo/`, cài policy extension và

@@ -72,21 +72,28 @@ A single root entry point chooses which pack to install and delegates to that
 pack's own installer:
 
 ```bash
+# macOS/Linux
 ./install                 # interactive: codex / pi / claude / all
-./install pi              # Pi pack only
-./install codex           # Codex pack only
-./install claude          # Claude Code pack only
-./install all             # all three, Codex first
-./install pi --dry-run    # preview, write nothing
-./install all --force     # overwrite differing files (backs up first)
-./install --help
+./install pi --dry-run
+./install all --force
+
+# Windows PowerShell / cmd.exe
+.\install.cmd             # interactive
+.\install.cmd pi --dry-run
+.\install.cmd all --force
+
+# Portable on every OS
+node install.mjs pi --dry-run
 ```
 
-Each pack's installer is self-contained inside its folder
+`install.mjs` is the cross-platform dispatcher; `install` and `install.cmd` are
+thin POSIX/Windows launchers. Each pack's installer is self-contained inside its folder
 (`codex-orchestration/install.mjs`, `pi-orchestration/install.mjs`,
 `claude-orchestration/install.mjs`). It backs up JSON before changing it, fails
 closed when a target differs (use `--force`), and **never restarts the Paseo
-daemon** — you do that yourself after agents are safe.
+daemon** — you do that yourself after agents are safe. Windows installation
+uses `PATHEXT` discovery, `.cmd` launchers, directory junctions, and file hard
+links/copy fallback, so Bash and Developer Mode are not required.
 
 Prerequisites: the matching agent CLI on PATH, and the pack's auth set up
 (`codex login`, or `pi` + `/login` for Pi).

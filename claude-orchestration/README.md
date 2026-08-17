@@ -9,6 +9,13 @@ Pack bốn role `claude-lead`, `claude-worker`, `claude-reviewer`,
 ```bash
 ./install claude --dry-run
 ./install claude
+
+# Windows PowerShell / cmd.exe
+.\install.cmd claude --dry-run
+.\install.cmd claude
+
+# Portable
+node install.mjs claude --dry-run
 ```
 
 Installer tạo role homes dưới `~/.claude-paseo/`, copy policy hooks và wrapper,

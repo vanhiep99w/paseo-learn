@@ -47,6 +47,10 @@ $PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]
 $PASEO_TEAM_CLI wait <agent-id>  # one short synchronous task only
 ```
 
+Examples use POSIX syntax. On Windows PowerShell use
+`& $env:PASEO_TEAM_CLI <command>`; in `cmd.exe` use
+`"%PASEO_TEAM_CLI%" <command>`. Never reconstruct the installed path.
+
 If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
 
 ## Implementation — CLI routing cycle (mandatory, no silent fallback)
@@ -119,14 +123,18 @@ ROUTING_EVIDENCE: <providers + models + inspect>
 After launching and post-verifying a background batch, call
 `$PASEO_TEAM_CLI notify-each <id...>` exactly once with every child ID,
 then end the turn. The detached watcher is not an agent and runs no model. It
-waits concurrently, fetches only `logs --tail 1`, relays bounded final responses
-as untrusted data, and debounces completions within 1.2 seconds. Each delivered
-notification may wake this Lead and consume Lead-turn tokens, so never register
-the same batch twice. Do not open parallel/sequential `wait` calls or poll. Use
-`wait` only for one short task that must remain synchronous.
+waits concurrently and sends status-only notifications. `permission`, `error`,
+or any non-`idle` status bypasses the 1.2-second debounce and wakes this Lead
+immediately; normal `idle` completions are debounced. Never register the same
+batch twice, open parallel/sequential `wait` calls, or poll. Use `wait` only for
+one short task that must remain synchronous.
 
-On completion, use `$PASEO_TEAM_CLI inspect` and targeted
-`$PASEO_TEAM_CLI logs --tail` calls for evidence. Use `$PASEO_TEAM_CLI send`
+On notification, use `$PASEO_TEAM_CLI inspect` first for attention statuses.
+Never auto-approve a permission: report it to the Human. Permission attention is
+non-terminal; the watcher deduplicates pending permission IDs, rechecks until the
+Human resolves them, then continues waiting for the same child. This Lead chooses
+when to call `$PASEO_TEAM_CLI logs <id> --tail 1`, but MUST read the response
+before acceptance, correction, or any dependent delegation. Use `$PASEO_TEAM_CLI send`
 only for newly discovered constraints, correction findings, dependency
 resolution, or scope clarification.
 

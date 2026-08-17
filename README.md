@@ -120,6 +120,8 @@ paseo status
 
 ### Chọn pack
 
+macOS/Linux:
+
 ```bash
 ./install                 # interactive
 ./install pi              # chỉ Pi
@@ -128,23 +130,39 @@ paseo status
 ./install all             # Codex → Pi → Claude
 ```
 
-Xem trước thay đổi:
+Windows PowerShell hoặc Command Prompt:
+
+```powershell
+.\install.cmd
+.\install.cmd pi
+.\install.cmd all --dry-run --force
+```
+
+Entry point portable dùng chung trên mọi OS:
 
 ```bash
-./install pi --dry-run
+node install.mjs pi --dry-run
 ```
 
 Nếu installer phát hiện pack-owned file khác bản trong repository, review rồi
 chạy:
 
 ```bash
+# macOS/Linux
 ./install pi --dry-run --force
 ./install pi --force
+
+# Windows
+.\install.cmd pi --dry-run --force
+.\install.cmd pi --force
 ```
 
 Installer backup file bị thay thế, preserve Human-owned Agent Profiles và không
 tự restart daemon. Khi nâng từ bản MCP sang CLI-only, dùng `--force` để retire
 launcher/`mcp.json` cũ và thay provider config sau khi đã review dry-run.
+Trên Windows, installer dùng `PATHEXT`, cài `paseo-team.cmd`, dùng junction cho
+shared directories và hard link (hoặc copy fallback khi khác volume) cho shared
+credential files; không yêu cầu Bash hay Windows Developer Mode.
 
 Sau khi các agent đang chạy đã an toàn:
 

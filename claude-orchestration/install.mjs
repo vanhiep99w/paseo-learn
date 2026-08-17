@@ -27,6 +27,7 @@
 import {
 	chmod,
 	copyFile,
+	link,
 	lstat,
 	mkdir,
 	readFile,
@@ -63,6 +64,8 @@ const sourceProfiles = path.join(packRoot, "profiles");
 const sourceSharedHooks = path.join(packRoot, "shared", "paseo-team-policy");
 const sourceTaskBriefTemplate = path.join(packRoot, "templates", "TASK_BRIEF_V3.md");
 const sourceTeamCli = path.join(packRoot, "bin", "paseo-team");
+const sourceTeamCliCmd = path.join(packRoot, "bin", "paseo-team.cmd");
+const isWindows = process.platform === "win32";
 
 const claudeConfigDir = path.resolve(
 	process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), ".claude"),
@@ -74,7 +77,13 @@ const rolesHome = path.resolve(
 	process.env.PASEO_CLAUDE_ROLES_HOME || path.join(homedir(), ".claude-paseo"),
 );
 const paseoBin = path.join(paseoHome, "bin");
-const targetTeamCli = path.join(paseoBin, "paseo-team");
+const targetTeamCliScript = path.join(
+	paseoBin,
+	isWindows ? "paseo-team.mjs" : "paseo-team",
+);
+const targetTeamCli = isWindows
+	? path.join(paseoBin, "paseo-team.cmd")
+	: targetTeamCliScript;
 const paseoConfigPath = path.join(paseoHome, "config.json");
 const preferencesPath = path.join(paseoHome, "orchestration-preferences.json");
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
@@ -117,6 +126,7 @@ function assertAgentProfilesPaseoVersion() {
 	const result = spawnSync("paseo", ["--version"], {
 		encoding: "utf8",
 		timeout: 10_000,
+		shell: isWindows,
 	});
 	if (result.error || result.status !== 0) {
 		throw new Error("Paseo v0.4.0+ is required to install Agent Profiles");
@@ -164,7 +174,7 @@ function discoverAgentProfileDefault() {
 	const result = spawnSync(
 		"paseo",
 		["provider", "models", "claude", "--thinking", "--json"],
-		{ encoding: "utf8", timeout: 60_000 },
+		{ encoding: "utf8", timeout: 60_000, shell: isWindows },
 	);
 	if (result.error) {
 		throw new Error(
@@ -393,7 +403,7 @@ async function installOwnedFile(source, target, mode) {
 		const targetText = await readFile(target, "utf8");
 		if (targetText === sourceText) {
 			console.log(`unchanged: ${target}`);
-			if (!dryRun && mode) await chmod(target, mode);
+			if (!dryRun && mode && !isWindows) await chmod(target, mode);
 			return;
 		}
 		if (!force) {
@@ -406,7 +416,7 @@ async function installOwnedFile(source, target, mode) {
 	if (!dryRun) {
 		await mkdir(path.dirname(target), { recursive: true });
 		await copyFile(source, target);
-		if (mode) await chmod(target, mode);
+		if (mode && !isWindows) await chmod(target, mode);
 	}
 	console.log(`${dryRun ? "would install" : "installed"}: ${target}`);
 }
@@ -440,21 +450,34 @@ async function walkSync(source, target) {
 	}
 }
 
-/**
- * Create a symlink target -> source, failing closed if a different link/file
- * occupies target (unless --force). source must already exist.
- */
+/** Share credentials via symlink (POSIX), hard link (Windows), or copy fallback. */
 async function installSymlink(source, target, label) {
 	if (!(await exists(source))) {
-		console.log(`symlink skipped (${label} missing): ${source}`);
+		console.log(`shared link skipped (${label} missing): ${source}`);
 		return;
 	}
+	const sourceInfo = await stat(source);
 	try {
 		const info = await lstat(target);
 		if (info.isSymbolicLink()) {
-			const link = await readlink(target);
-			if (path.resolve(path.dirname(target), link) === source) {
+			const currentLink = await readlink(target);
+			if (path.resolve(path.dirname(target), currentLink) === source) {
 				console.log(`unchanged: ${target} -> ${source}`);
+				return;
+			}
+		}
+		if (isWindows && sourceInfo.isFile() && info.isFile()) {
+			const targetInfo = await stat(target);
+			if (targetInfo.dev === sourceInfo.dev && targetInfo.ino === sourceInfo.ino) {
+				console.log(`unchanged hard link: ${target} -> ${source}`);
+				return;
+			}
+			const [sourceBytes, targetBytes] = await Promise.all([
+				readFile(source),
+				readFile(target),
+			]);
+			if (sourceBytes.equals(targetBytes)) {
+				console.log(`unchanged shared copy: ${target} <- ${source}`);
 				return;
 			}
 		}
@@ -463,19 +486,28 @@ async function installSymlink(source, target, label) {
 				`Refusing to replace existing ${target}; rerun with --force after review`,
 			);
 		}
-		await backup(target);
-		if (!dryRun) {
-			const { rm } = await import("node:fs/promises");
-			await rm(target, { recursive: true, force: true });
-		}
+		const backupTarget = `${target}.bak.${stamp}`;
+		if (!dryRun) await rename(target, backupTarget);
+		console.log(`${dryRun ? "would backup" : "backup"}: ${backupTarget}`);
 	} catch (error) {
 		if (error?.code !== "ENOENT") throw error;
 	}
+	let kind = isWindows ? "hard link" : "symlink";
 	if (!dryRun) {
 		await mkdir(path.dirname(target), { recursive: true });
-		await symlink(source, target);
+		if (isWindows) {
+			try {
+				await link(source, target);
+			} catch (error) {
+				if (error?.code !== "EXDEV" && error?.code !== "EPERM") throw error;
+				await copyFile(source, target);
+				kind = "shared copy fallback";
+			}
+		} else {
+			await symlink(source, target);
+		}
 	}
-	console.log(`${dryRun ? "would link" : "linked"}: ${target} -> ${source} (${label})`);
+	console.log(`${dryRun ? `would create ${kind}` : `created ${kind}`}: ${target} -> ${source} (${label})`);
 }
 
 async function installRole(role) {
@@ -546,18 +578,25 @@ async function checkPrereqs() {
 	return problems;
 }
 
-/** Resolve a binary via PATH without spawning (best-effort, sync). */
+/** Resolve a binary via PATH, including PATHEXT launchers on Windows. */
 async function which(bin) {
 	const { access } = await import("node:fs/promises");
-	const PATH = (process.env.PATH || "").split(path.delimiter);
-	for (const dir of PATH) {
-		const candidate = path.join(dir, bin);
-		try {
-			await access(candidate, fsConstants.X_OK);
-		} catch {
-			continue;
+	const pathEntries = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+	const extensions = isWindows
+		? ["", ...(process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+			.split(";")
+			.filter(Boolean)]
+		: [""];
+	for (const directory of pathEntries) {
+		for (const extension of extensions) {
+			const candidate = path.join(directory, `${bin}${extension}`);
+			try {
+				await access(candidate, isWindows ? fsConstants.F_OK : fsConstants.X_OK);
+				return candidate;
+			} catch {
+				// Try the next PATHEXT candidate.
+			}
 		}
-		return candidate;
 	}
 	return "";
 }
@@ -622,7 +661,8 @@ async function main() {
 	}
 
 	console.log(`\n== role-gated Paseo CLI ==`);
-	await installOwnedFile(sourceTeamCli, targetTeamCli, 0o755);
+	await installOwnedFile(sourceTeamCli, targetTeamCliScript, isWindows ? undefined : 0o755);
+	if (isWindows) await installOwnedFile(sourceTeamCliCmd, targetTeamCli);
 	await retireOwnedFile(path.join(paseoBin, "claude-role-app-server"), "Claude MCP launcher");
 	await retireOwnedFile(path.join(paseoBin, "claude-readonly-app-server"), "Claude compatibility launcher");
 

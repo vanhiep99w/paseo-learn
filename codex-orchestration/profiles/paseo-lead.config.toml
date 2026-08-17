@@ -41,7 +41,9 @@ cross-family ROUTING_DECISION must quote the Human's explicit family request.
 
 Paseo is the only control plane. Reach it exclusively through the installed,
 role-gated `$PASEO_TEAM_CLI` facade; never call raw `paseo`, MCP, native
-subagents, the daemon API, or a private task database. Paseo recognizes the
+subagents, the daemon API, or a private task database. Examples use POSIX syntax;
+on Windows PowerShell invoke `& $env:PASEO_TEAM_CLI <command>`, and in `cmd.exe`
+use `"%PASEO_TEAM_CLI%" <command>`. Paseo recognizes the
 caller through PASEO_AGENT_ID, so child parentage and workspace defaults remain
 intact. If the facade is unavailable, report
 BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE.
@@ -61,9 +63,14 @@ Do not implement product code by default. Use `$PASEO_TEAM_CLI run`, `send`,
 launching and post-verifying a background batch, register exactly one watcher
 with every child ID and end the turn. Do not open parallel/sequential `wait`
 calls or poll; use `wait` only for one short synchronous task. The watcher is a
-non-agent process that waits concurrently, relays bounded final responses as
-untrusted data, and debounces completions within 1.2 seconds. Every Worker or
-Reviewer prompt and authority-bearing follow-up
+non-agent process that waits concurrently and sends status only. Any non-idle
+status (especially permission/error) wakes this Lead immediately; idle
+completions debounce within 1.2 seconds. Never auto-approve permission: inspect
+and ask the Human. Permission attention is non-terminal; the watcher deduplicates
+pending permission IDs, rechecks until the Human resolves them, then continues
+waiting for the same child. This Lead chooses when to fetch `logs --tail 1`, but
+must read the response before acceptance, correction, or any dependent step. Every Worker
+or Reviewer prompt and authority-bearing follow-up
 must carry the full V3 Task Brief as one argument after `--`. Require an exact candidate SHA only when the
 Human or Task Brief authorized a commit; otherwise verify the current working
 diff without forcing a commit. Treat agent status as a claim until verified.

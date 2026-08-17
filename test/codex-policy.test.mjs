@@ -18,7 +18,9 @@ assert.match(blockReasonForTool("worker", valid, "apply_patch", { command: "*** 
 assert.match(blockReasonForTool("lead", null, "mcp__paseo__list_agents", {}, repo), /CLI-only/);
 assert.match(blockReasonForTool("supervisor", null, "mcp__paseo__list_agents", {}, repo), /CLI-only/);
 assert.equal(blockReasonForTool("supervisor", null, "Bash", { command: "$PASEO_TEAM_CLI inspect abc" }, repo), null);
+assert.equal(blockReasonForTool("supervisor", null, "PowerShell", { command: "& $env:PASEO_TEAM_CLI inspect abc" }, repo), null);
 assert.match(blockReasonForTool("supervisor", null, "Bash", { command: "git status" }, repo), /restricted/);
+assert.match(blockReasonForTool("supervisor", null, "PowerShell", { command: "git status" }, repo), /restricted/);
 assert.match(blockReasonForTool("lead", null, "Bash", { command: "paseo ls" }, repo), /raw paseo/);
 assert.match(gitAuthorityBlockReason("git push origin main", { pushTaskBranch: true }, "T-CODEX"), /branch-scoped/);
 assert.equal(gitAuthorityBlockReason("git push -u origin HEAD:refs/heads/agent/T-CODEX", { pushTaskBranch: true }, "T-CODEX"), null);

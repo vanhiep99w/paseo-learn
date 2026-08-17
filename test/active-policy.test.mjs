@@ -102,9 +102,15 @@ assert.match(
 );
 assert.equal(callsPaseoCli("$PASEO_CLI run task"), true);
 assert.equal(callsPaseoCli("\"$PASEO_CLI\" run task"), true);
+assert.equal(callsPaseoCli("& $env:PASEO_CLI run task"), true);
+assert.equal(callsPaseoCli("%PASEO_CLI% run task"), true);
 assert.equal(callsPaseoTeamCli("$PASEO_TEAM_CLI inspect abc"), true);
 assert.equal(callsPaseoTeamCli("\"$PASEO_TEAM_CLI\" inspect abc"), true);
+assert.equal(callsPaseoTeamCli("& $env:PASEO_TEAM_CLI inspect abc"), true);
+assert.equal(callsPaseoTeamCli("\"%PASEO_TEAM_CLI%\" inspect abc"), true);
+assert.equal(callsPaseoTeamCli("C:\\Paseo\\bin\\paseo-team.cmd inspect abc"), true);
 assert.equal(safeSupervisorCliCommand("$PASEO_TEAM_CLI inspect abc"), true);
+assert.equal(safeSupervisorCliCommand("& $env:PASEO_TEAM_CLI inspect abc"), true);
 assert.equal(safeSupervisorCliCommand("$PASEO_TEAM_CLI inspect abc; rm -rf x"), false);
 assert.equal(
 	blockReasonForTool("supervisor", null, "Bash", { command: "$PASEO_TEAM_CLI inspect abc" }, repo),

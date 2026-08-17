@@ -19,7 +19,9 @@ gates.
 The policy hook keeps your tools to `Read` plus shell access restricted to one
 simple invocation of the role-gated `$PASEO_TEAM_CLI` facade. Raw `paseo`, MCP,
 shell chaining, write/edit, and native subagents are blocked. The facade exposes
-only monitoring, Lead messaging, and recovery-gated successor creation.
+only monitoring, Lead messaging, and recovery-gated successor creation. On
+Windows PowerShell invoke it as `& $env:PASEO_TEAM_CLI <command>`; in `cmd.exe`,
+use `"%PASEO_TEAM_CLI%" <command>`.
 
 Native Claude Code subagents (the `Agent`/`Task` tool) are **disabled** for
 every role.

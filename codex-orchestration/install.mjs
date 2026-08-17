@@ -3,6 +3,7 @@
 import {
 	chmod,
 	copyFile,
+	link,
 	lstat,
 	mkdir,
 	readFile,
@@ -35,6 +36,8 @@ if (unknown.length) {
 const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
 const sourceTeamCli = path.join(packRoot, "bin", "paseo-team");
+const sourceTeamCliCmd = path.join(packRoot, "bin", "paseo-team.cmd");
+const isWindows = process.platform === "win32";
 const sourcePolicy = path.join(packRoot, "shared", "paseo-team-policy");
 const sourcePolicyManifest = path.join(sourcePolicy, "hooks.json");
 const codexHome = path.resolve(
@@ -48,7 +51,13 @@ const rolesHome = path.resolve(
 		path.join(homedir(), ".codex-paseo"),
 );
 const paseoBin = path.join(paseoHome, "bin");
-const targetTeamCli = path.join(paseoBin, "paseo-team");
+const targetTeamCliScript = path.join(
+	paseoBin,
+	isWindows ? "paseo-team.mjs" : "paseo-team",
+);
+const targetTeamCli = isWindows
+	? path.join(paseoBin, "paseo-team.cmd")
+	: targetTeamCliScript;
 const paseoConfigPath = path.join(paseoHome, "config.json");
 const preferencesPath = path.join(
 	paseoHome,
@@ -183,7 +192,7 @@ async function installOwnedFile(source, target, mode) {
 		const targetText = await readFile(target, "utf8");
 		if (targetText === sourceText) {
 			console.log(`unchanged: ${target}`);
-			if (!dryRun && mode) await chmod(target, mode);
+			if (!dryRun && mode && !isWindows) await chmod(target, mode);
 			return;
 		}
 		if (!force) {
@@ -196,7 +205,7 @@ async function installOwnedFile(source, target, mode) {
 	if (!dryRun) {
 		await mkdir(path.dirname(target), { recursive: true });
 		await copyFile(source, target);
-		if (mode) await chmod(target, mode);
+		if (mode && !isWindows) await chmod(target, mode);
 	}
 	console.log(`${dryRun ? "would install" : "installed"}: ${target}`);
 }
@@ -272,15 +281,31 @@ async function installAuthLink(roleHome) {
 	const source = path.join(codexHome, "auth.json");
 	const target = path.join(roleHome, "auth.json");
 	if (!(await exists(source))) {
-		console.log(`auth not linked (run codex login first): ${source}`);
+		console.log(`auth not shared (run codex login first): ${source}`);
 		return;
 	}
+	const sourceInfo = await stat(source);
 	try {
 		const info = await lstat(target);
 		if (info.isSymbolicLink()) {
-			const link = await readlink(target);
-			if (path.resolve(roleHome, link) === source) {
+			const currentLink = await readlink(target);
+			if (path.resolve(roleHome, currentLink) === source) {
 				console.log(`unchanged: ${target} -> ${source}`);
+				return;
+			}
+		}
+		if (isWindows && info.isFile()) {
+			const targetInfo = await stat(target);
+			if (targetInfo.dev === sourceInfo.dev && targetInfo.ino === sourceInfo.ino) {
+				console.log(`unchanged hard link: ${target} -> ${source}`);
+				return;
+			}
+			const [sourceBytes, targetBytes] = await Promise.all([
+				readFile(source),
+				readFile(target),
+			]);
+			if (sourceBytes.equals(targetBytes)) {
+				console.log(`unchanged shared copy: ${target} <- ${source}`);
 				return;
 			}
 		}
@@ -290,11 +315,22 @@ async function installAuthLink(roleHome) {
 	} catch (error) {
 		if (error?.code !== "ENOENT") throw error;
 	}
+	let kind = isWindows ? "hard link" : "symlink";
 	if (!dryRun) {
 		await mkdir(roleHome, { recursive: true });
-		await symlink(source, target);
+		if (isWindows) {
+			try {
+				await link(source, target);
+			} catch (error) {
+				if (error?.code !== "EXDEV" && error?.code !== "EPERM") throw error;
+				await copyFile(source, target);
+				kind = "shared copy fallback";
+			}
+		} else {
+			await symlink(source, target);
+		}
 	}
-	console.log(`${dryRun ? "would link" : "linked"}: ${target} -> ${source}`);
+	console.log(`${dryRun ? `would create ${kind}` : `created ${kind}`}: ${target} -> ${source}`);
 }
 
 async function writeJsonAtomic(pathname, value) {
@@ -335,7 +371,8 @@ async function main() {
 		await installOwnedFile(sourcePolicyManifest, path.join(roleHome, "hooks.json"), 0o600);
 		await installOwnedDir(sourcePolicy, path.join(roleHome, "hooks"));
 	}
-	await installOwnedFile(sourceTeamCli, targetTeamCli, 0o755);
+	await installOwnedFile(sourceTeamCli, targetTeamCliScript, isWindows ? undefined : 0o755);
+	if (isWindows) await installOwnedFile(sourceTeamCliCmd, targetTeamCli);
 	await retireOwnedFile(path.join(paseoBin, "codex-role-app-server"), "Codex MCP launcher");
 	await retireOwnedFile(path.join(paseoBin, "codex-readonly-app-server"), "Codex compatibility launcher");
 

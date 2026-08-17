@@ -55,14 +55,15 @@ export function leadWriteEnabled() {
 const PASEO_CLI_RE =
 	/\b(paseo|paseo-pi|paseo-claude|pio)(?:\.(?:cmd|exe|ps1|sh))?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
 const PASEO_CLI_ENV_RE =
-	/["\']?\$\{?PASEO_CLI\}?["\']?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
+	/["\']?(?:\$\{?PASEO_CLI\}?|\$env:PASEO_CLI|%PASEO_CLI%)["\']?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
 
 /** @param {string} command @returns {boolean} */
 export function callsPaseoCli(command) {
 	return PASEO_CLI_RE.test(command) || PASEO_CLI_ENV_RE.test(command);
 }
 
-const PASEO_TEAM_CLI_RE = /(?:["\']?\$\{?PASEO_TEAM_CLI\}?["\']?|(?:^|[\\/])paseo-team["\']?)\s+/i;
+const PASEO_TEAM_CLI_RE =
+	/(?:["\']?(?:\$\{?PASEO_TEAM_CLI\}?|\$env:PASEO_TEAM_CLI|%PASEO_TEAM_CLI%)["\']?|(?:^|[\\/])paseo-team(?:\.(?:cmd|mjs))?["\']?)\s+/i;
 const SHELL_CONTROL_RE = /(?:\r|\n|&&|\|\||[;|<>`]|\$\()/;
 
 /** @param {string} command @returns {boolean} */
@@ -135,7 +136,7 @@ export function gitAuthorityBlockReason(command, authority, taskId) {
 // ---------------------------------------------------------------------------
 
 const WRITE_TOOLS = new Set(["apply_patch", "Edit", "Write", "MultiEdit", "NotebookEdit", "Artifact"]);
-const SHELL_TOOLS = new Set(["Bash"]);
+const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
 const PASEO_MCP_PREFIX = "mcp__paseo__";
 
 function canonicalPath(pathname) {

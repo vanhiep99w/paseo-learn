@@ -26,8 +26,10 @@ No role receives `--mcp-config`. All four providers use plain
 `PASEO_CLAUDE_ROLE`. The wrapper requires `PASEO_AGENT_ID`, shells out to the
 public Paseo CLI, and preserves caller parent/workspace semantics. Lead batches
 use one detached `notify-each` watcher instead of blocking waits. The watcher
-waits concurrently, debounces near-simultaneous completions, and relays bounded
-final responses as untrusted data without running an LLM.
+waits concurrently and sends status only without running an LLM. Non-idle
+statuses notify immediately; idle completions debounce for 1.2 seconds. The Lead
+fetches responses selectively and must inspect permission before asking the
+Human—permissions are never auto-approved and do not complete the watched child.
 
 ## Hard policy hooks
 

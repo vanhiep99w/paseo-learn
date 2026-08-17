@@ -10,6 +10,13 @@ Pack bốn role `codex-lead`, `codex-worker`, `codex-reviewer`,
 codex login
 ./install codex --dry-run
 ./install codex
+
+# Windows PowerShell / cmd.exe
+.\install.cmd codex --dry-run
+.\install.cmd codex
+
+# Portable
+node install.mjs codex --dry-run
 ```
 
 Installer tạo role homes dưới `~/.codex-paseo/`, copy hooks và wrapper, merge

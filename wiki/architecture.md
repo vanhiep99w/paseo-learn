@@ -144,13 +144,18 @@ installers place it at `$PASEO_HOME/bin/paseo-team` and set
   successor-Lead `run`. Workspace overrides and non-Lead providers are rejected.
 - **Worker/Reviewer:** every wrapper command is rejected.
 
-`notify-each <id...>` starts one detached, non-agent Node watcher. It opens
-concurrent event waits through the CLI, fetches only each agent's final response
-with `logs --tail 1`, bounds response size, and marks it as untrusted data.
-Completions within 1.2 seconds are debounced into one prompt; otherwise each
-agent wakes the Lead immediately. The final event is
-`PASEO_TEAM_BATCH_COMPLETED`, so no extra batch message is needed. Deterministic
-state under `$PASEO_HOME/paseo-team-watchers/` prevents duplicate registration.
+`notify-each <id...>` starts one detached, non-agent Node watcher and opens
+concurrent event waits through the CLI. Notifications contain status metadata
+only—never agent responses or activity transcripts. Normal `idle` completions
+within 1.2 seconds are debounced; any non-idle status, especially `permission`
+or `error`, wakes the Lead immediately with `PASEO_TEAM_AGENT_ATTENTION`.
+Permission does not complete that child: the watcher records/deduplicates pending
+permission IDs, rechecks every two seconds without using an LLM, and resumes the
+same wait after the Human allows or denies it. The final event marks
+`BATCH_COMPLETE: yes`, so no extra message is needed. The Lead chooses when to
+fetch `logs --tail 1`, but must read the response before acceptance or a
+dependent step. Permission is never auto-approved. Deterministic state under
+`$PASEO_HOME/paseo-team-watchers/` prevents duplicate registration.
 Leads end their turn after registration; manual waits and polling are forbidden
 except one short synchronous task.
 
@@ -158,6 +163,13 @@ The Pi extension and Claude/Codex hooks additionally block raw `paseo`, all MCP
 paths, and wrapper use by Worker/Reviewer. Supervisor shell access is restricted
 to one simple wrapper invocation without shell control operators. This remains a
 behavioral/capability-exposure boundary, not an OS security sandbox.
+
+On Windows the installer places a Node payload at `paseo-team.mjs` plus a
+`paseo-team.cmd` launcher and sets `PASEO_TEAM_CLI` to the launcher. PowerShell
+uses `& $env:PASEO_TEAM_CLI`; `cmd.exe` uses `"%PASEO_TEAM_CLI%"`. The wrapper
+resolves npm's `paseo.cmd` to its Node entrypoint instead of passing untrusted
+prompts through `cmd.exe`. Shared directories use junctions; shared files use
+hard links with a cross-volume copy fallback, so Developer Mode is unnecessary.
 
 Daemon-wide MCP injection remains disabled so project or host configuration does
 not accidentally expose a second orchestration path. The installers do not need

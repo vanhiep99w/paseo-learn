@@ -31,13 +31,18 @@ writeFileSync(fakePaseo, `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.appendFileSync(process.env.FAKE_PASEO_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
 if (process.argv[2] === "inspect") {
-  process.stdout.write(JSON.stringify({ Provider: process.env.FAKE_INSPECT_PROVIDER || "pi-lead" }));
+  const pending = process.argv[3] === "child-permission" ? [{ id: "perm-1" }] : [];
+  process.stdout.write(JSON.stringify({ Provider: process.env.FAKE_INSPECT_PROVIDER || "pi-lead", PendingPermissions: pending }));
 } else if (process.argv[2] === "wait") {
   if (process.argv[3] === "child-b") Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);
-  process.stdout.write(JSON.stringify({ agentId: process.argv[3], status: "idle", message: "large transcript must be stripped" }));
+  let status = "idle";
+  if (process.argv[3] === "child-permission" && !fs.existsSync(process.env.FAKE_PERMISSION_STATE)) {
+    fs.writeFileSync(process.env.FAKE_PERMISSION_STATE, "seen");
+    status = "permission";
+  }
+  process.stdout.write(JSON.stringify({ agentId: process.argv[3], status, message: "large transcript must be stripped" }));
 } else if (process.argv[2] === "logs") {
-  const suffix = process.argv[3] === "child-b" ? "x".repeat(7000) : "";
-  process.stdout.write("final response from " + process.argv[3] + suffix + "\\n");
+  process.stdout.write("response that watcher must never fetch\\n");
 } else if (process.argv.includes("--quiet")) {
   process.stdout.write("child-123\\n");
 } else {
@@ -54,6 +59,7 @@ function call(roleEnv, args, extraEnv = {}) {
 			FAKE_PASEO_LOG: log,
 			PASEO_AGENT_ID: "parent-1",
 			PASEO_HOME: path.join(fixture, "paseo-home"),
+			FAKE_PERMISSION_STATE: path.join(fixture, "permission-state"),
 			...roleEnv,
 			...extraEnv,
 		},
@@ -123,8 +129,8 @@ result = call(
 assert.equal(result.status, 2);
 assert.match(result.stderr, /only pi-lead/);
 
-// One detached non-agent watcher waits concurrently, relays bounded final
-// responses as untrusted data, and notifies once per debounce group.
+// One detached non-agent watcher waits concurrently and sends status-only
+// notifications. Lead decides whether and when to fetch each response.
 const watcherCallStart = calls().length;
 result = call(
 	{ PASEO_PI_ROLE: "lead" },
@@ -156,8 +162,6 @@ assert.deepEqual(notified.completed.map(({ agentId, status }) => ({ agentId, sta
 	{ agentId: "child-a", status: "idle" },
 	{ agentId: "child-b", status: "idle" },
 ]);
-assert.equal(notified.completed[0].responseTruncated, false);
-assert.equal(notified.completed[1].responseTruncated, true);
 const watcherCalls = calls().slice(watcherCallStart);
 const waitCalls = watcherCalls.filter((entry) => entry[0] === "wait");
 assert.deepEqual(new Set(waitCalls.map((entry) => entry[1])), new Set(["child-a", "child-b"]));
@@ -165,11 +169,13 @@ const sendCalls = watcherCalls.filter((entry) => entry[0] === "send");
 assert.equal(sendCalls.length, 2);
 assert.equal(sendCalls[0][1], "parent-1");
 assert.match(sendCalls[0].at(-1), /PASEO_TEAM_AGENT_COMPLETED/);
-assert.match(sendCalls[0].at(-1), /final response from child-a/);
-assert.match(sendCalls[0].at(-1), /UNTRUSTED_AGENT_RESULTS_JSON_BEGIN/);
+assert.match(sendCalls[0].at(-1), /RESULTS_JSON/);
 assert.match(sendCalls[1].at(-1), /PASEO_TEAM_BATCH_COMPLETED/);
-assert.match(sendCalls[1].at(-1), /final response from child-b/);
-for (const sendCall of sendCalls) assert.doesNotMatch(sendCall.at(-1), /large transcript/);
+for (const sendCall of sendCalls) {
+	assert.doesNotMatch(sendCall.at(-1), /large transcript/);
+	assert.doesNotMatch(sendCall.at(-1), /finalResponse|response that watcher/);
+}
+assert.equal(watcherCalls.some((entry) => entry[0] === "logs"), false);
 
 const callCount = calls().length;
 result = call(
@@ -179,6 +185,41 @@ result = call(
 assert.equal(result.status, 0, result.stderr);
 assert.equal(JSON.parse(result.stdout).alreadyRegistered, true);
 assert.equal(calls().length, callCount);
+
+// Permission/error-like statuses bypass debounce and emit an attention event;
+// the watcher never approves the request or fetches its response automatically.
+const attentionCallStart = calls().length;
+result = call(
+	{ PASEO_PI_ROLE: "lead" },
+	["notify-each", "child-permission"],
+);
+assert.equal(result.status, 0, result.stderr);
+const attentionRegistration = JSON.parse(result.stdout);
+const attentionState = path.join(
+	fixture,
+	"paseo-home",
+	"paseo-team-watchers",
+	`${attentionRegistration.batchId}.json`,
+);
+for (let attempt = 0; attempt < 120; attempt += 1) {
+	if (existsSync(attentionState)) {
+		const state = JSON.parse(readFileSync(attentionState, "utf8"));
+		if (state.state === "notified") break;
+	}
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+}
+const attention = JSON.parse(readFileSync(attentionState, "utf8"));
+assert.equal(attention.state, "notified");
+assert.equal(attention.attentionEvents[0].status, "permission");
+assert.deepEqual(attention.attentionEvents[0].pendingPermissionIds, ["perm-1"]);
+assert.equal(attention.completed[0].status, "idle");
+const attentionCalls = calls().slice(attentionCallStart);
+const attentionSends = attentionCalls.filter((entry) => entry[0] === "send");
+assert.equal(attentionSends.length, 2);
+assert.match(attentionSends[0].at(-1), /PASEO_TEAM_AGENT_ATTENTION/);
+assert.match(attentionSends[0].at(-1), /không tự approve/);
+assert.match(attentionSends[1].at(-1), /PASEO_TEAM_BATCH_COMPLETED/);
+assert.equal(attentionCalls.some((entry) => entry[0] === "logs"), false);
 
 result = call(
 	{ PASEO_PI_ROLE: "supervisor" },

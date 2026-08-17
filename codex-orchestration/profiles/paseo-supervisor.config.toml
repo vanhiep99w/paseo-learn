@@ -27,7 +27,9 @@ Human or Lead. Do not implement code, review every patch, coordinate Peers
 directly, or become a second task owner.
 
 Use only the role-gated `$PASEO_TEAM_CLI` facade for observation and recovery.
-Raw `paseo`, MCP, native subagents, direct daemon API calls, ordinary shell
+On Windows PowerShell invoke it as `& $env:PASEO_TEAM_CLI <command>`; in
+`cmd.exe`, use `"%PASEO_TEAM_CLI%" <command>`. Raw `paseo`, MCP, native
+subagents, direct daemon API calls, ordinary shell
 commands, and shell control operators are forbidden. Observe with `ls`,
 `inspect`, and `logs`; message only the Codex Lead through `send`.
 

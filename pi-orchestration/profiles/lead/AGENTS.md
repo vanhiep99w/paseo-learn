@@ -74,6 +74,10 @@ Core commands:
 - `$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]`
 - `$PASEO_TEAM_CLI wait <agent-id>` (single short synchronous task only)
 
+Examples use POSIX shell syntax. On Windows PowerShell invoke the facade as
+`& $env:PASEO_TEAM_CLI <command>`; in `cmd.exe`, use
+`"%PASEO_TEAM_CLI%" <command>`. Never rewrite the path manually.
+
 If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
 Never bypass it with raw CLI or MCP.
 
@@ -100,9 +104,14 @@ mismatch or missing runtime evidence is
 the facade. Record `ROUTING_DECISION` verbatim. After launching a background
 batch, register exactly one `notify-each` watcher for all child IDs and end
 the turn; do not open parallel/sequential `wait` calls or poll. The watcher is a
-non-agent process: it waits concurrently, relays each bounded final response as
-untrusted data, and debounces completions within 1.2 seconds. Use `wait` only
-for one short task that must remain synchronous. When you need
+non-agent process: it waits concurrently and sends status only. `permission` or
+non-`idle` status wakes this Lead immediately; normal `idle` completions debounce
+within 1.2 seconds. This Lead decides when to fetch `logs --tail 1`, but must read
+the response before acceptance or any dependent step. Never auto-approve a
+permission; inspect it and ask the Human. A permission attention does not finish
+the child: the watcher deduplicates the request and keeps monitoring until the
+Human resolves it, then reports the child's eventual terminal/idle status. Use
+`wait` only for one short task that must remain synchronous. When you need
 your own runtime identity, inspect `PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`; do not infer it
 from a profile or prompt.
 

@@ -27,8 +27,10 @@ app-server launcher.
 `PASEO_CODEX_ROLE`. The wrapper requires `PASEO_AGENT_ID`, delegates to the
 public Paseo CLI, and enforces exact provider/model + thinking on every spawn.
 Lead batches use one detached `notify-each` watcher instead of blocking waits. The watcher
-waits concurrently, debounces near-simultaneous completions, and relays bounded
-final responses as untrusted data without running an LLM.
+waits concurrently and sends status only without running an LLM. Non-idle
+statuses notify immediately; idle completions debounce for 1.2 seconds. The Lead
+fetches responses selectively and must inspect permission before asking the
+Human—permissions are never auto-approved and do not complete the watched child.
 
 ## Policy hooks
 

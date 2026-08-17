@@ -28,8 +28,10 @@ all MCP proxy calls are denied by policy.
 CLI, and enforces the role matrix described in
 [Role-gated CLI facade](../architecture.md#role-gated-cli-facade). Lead batches
 use one detached `notify-each` watcher instead of blocking waits. The watcher
-waits concurrently, debounces near-simultaneous completions, and relays bounded
-final responses as untrusted data without running an LLM.
+waits concurrently and sends status only without running an LLM. Non-idle
+statuses notify immediately; idle completions debounce for 1.2 seconds. The Lead
+fetches responses selectively and must inspect permission before asking the
+Human—permissions are never auto-approved and do not complete the watched child.
 
 All four providers use plain `command: ["pi"]`; no MCP-injecting launcher is
 used.

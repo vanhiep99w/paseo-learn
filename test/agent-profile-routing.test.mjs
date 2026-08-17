@@ -35,6 +35,10 @@ for (const file of leadContracts) {
 	assert.match(source, /notify-each/, `${file} must register one CLI completion watcher`);
 	assert.match(source, /parallel\/sequential [`]?wait/i,
 		`${file} must forbid batches of blocking wait calls`);
+	assert.match(source, /status[- ]only|sends status only/i,
+		`${file} must keep completion notifications response-free`);
+	assert.match(source, /Never auto-approve|không tự approve/i,
+		`${file} must escalate permission instead of approving it`);
 }
 
 const piLeadSkill = read("pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md");

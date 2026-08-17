@@ -203,13 +203,14 @@ export function denyReason(
 const PASEO_CLI_RE =
 	/\b(paseo|paseo-pi|pio)(?:\.(?:cmd|exe|ps1|sh))?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
 const PASEO_CLI_ENV_RE =
-	/["\']?\$\{?PASEO_CLI\}?["\']?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
+	/["\']?(?:\$\{?PASEO_CLI\}?|\$env:PASEO_CLI|%PASEO_CLI%)["\']?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
 
 export function callsPaseoCli(command: string): boolean {
 	return PASEO_CLI_RE.test(command) || PASEO_CLI_ENV_RE.test(command);
 }
 
-const PASEO_TEAM_CLI_RE = /(?:["\']?\$\{?PASEO_TEAM_CLI\}?["\']?|(?:^|[\\/])paseo-team["\']?)\s+/i;
+const PASEO_TEAM_CLI_RE =
+	/(?:["\']?(?:\$\{?PASEO_TEAM_CLI\}?|\$env:PASEO_TEAM_CLI|%PASEO_TEAM_CLI%)["\']?|(?:^|[\\/])paseo-team(?:\.(?:cmd|mjs))?["\']?)\s+/i;
 const SHELL_CONTROL_RE = /(?:\r|\n|&&|\|\||[;|<>`]|\$\()/;
 
 export function callsPaseoTeamCli(command: string): boolean {

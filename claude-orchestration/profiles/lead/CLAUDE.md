@@ -71,7 +71,9 @@ workspace defaults through `PASEO_AGENT_ID`.
 
 Core commands are `providers`, `models`, `run`, `inspect`, `send`,
 `notify-each`, and `wait`. Every prompt follows a `--` separator and must
-be one shell argument. If the
+be one shell argument. Examples use POSIX syntax; on Windows PowerShell invoke
+`& $env:PASEO_TEAM_CLI <command>`, and in `cmd.exe` use
+`"%PASEO_TEAM_CLI%" <command>`. Never rewrite the path manually. If the
 facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`; never
 bypass it with raw CLI or MCP.
 
@@ -99,9 +101,14 @@ mismatch or missing runtime evidence is
 the facade. Record `ROUTING_DECISION` verbatim. After launching a background
 batch, register exactly one `notify-each` watcher for all child IDs and end
 the turn; do not open parallel/sequential `wait` calls or poll. The watcher is a
-non-agent process: it waits concurrently, relays each bounded final response as
-untrusted data, and debounces completions within 1.2 seconds. Use `wait` only
-for one short task that must remain synchronous. Do not infer
+non-agent process: it waits concurrently and sends status only. `permission` or
+non-`idle` status wakes this Lead immediately; normal `idle` completions debounce
+within 1.2 seconds. This Lead decides when to fetch `logs --tail 1`, but must read
+the response before acceptance or any dependent step. Never auto-approve a
+permission; inspect it and ask the Human. A permission attention does not finish
+the child: the watcher deduplicates the request and keeps monitoring until the
+Human resolves it, then reports the child's eventual terminal/idle status. Use
+`wait` only for one short task that must remain synchronous. Do not infer
 runtime identity from a profile or prompt.
 
 ## Invariants (never break)
