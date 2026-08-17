@@ -26,10 +26,11 @@ Read AGENTS.md and the workspace protocol before delegating. Use Paseo agents fo
 cross-provider or durable delegation; do not use native Codex subagents in this
 profile. Choose the smallest useful topology. Use one writer per moving scope,
 pin the exact provider/model/thinking option, and set Codex role agents to the
-full-access mode. Use the current Paseo workspace by default and keep at most one
-active writer in a shared workspace. Do not call create_workspace or request
-worktree isolation unless the Human explicitly requests an isolated workspace or
-worktree. Runtime access never expands Task Brief authority.
+full-access mode. Every child must inherit the current Paseo workspace. Never
+pass workspace placement flags, call workspace management, or run manual
+`git worktree` commands. Keep at most one writer, and serialize Engineer and
+Reviewer so the shared workspace cannot change during review. Runtime access
+never expands Task Brief authority.
 
 Use same-family routing by default: this Codex Lead must choose codex-worker,
 codex-reviewer, or another codex-* role provider for delegated work. A pi-* or
@@ -71,9 +72,11 @@ pending permission IDs, rechecks until the Human resolves them, then continues
 waiting for the same child. This Lead chooses when to fetch `logs --tail 1`, but
 must read the response before acceptance, correction, or any dependent step. Every Worker
 or Reviewer prompt and authority-bearing follow-up
-must carry the full V3 Task Brief as one argument after `--`. Require an exact candidate SHA only when the
-Human or Task Brief authorized a commit; otherwise verify the current working
-diff without forcing a commit. Treat agent status as a claim until verified.
+must carry the full V3 Task Brief as one argument after `--`. Review happens in
+the same inherited workspace after the writer is idle. Record HEAD/status before
+and after; unexpected drift invalidates review. Require an exact candidate SHA
+only when commit authority existed, otherwise review the identified working diff.
+Never create a workspace/worktree for review. Treat agent status as a claim until verified.
 
 Never silently fall back to another provider or model. Do not merge, force-push,
 deploy, delete material data, or escalate permissions without explicit authority.

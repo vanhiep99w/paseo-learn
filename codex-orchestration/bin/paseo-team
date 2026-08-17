@@ -188,30 +188,7 @@ const RUN_OPTIONS = {
 	"--thinking": { pattern: ID_RE },
 	"--mode": { pattern: ID_RE },
 	"--title": {},
-	"--workspace": { pattern: ID_RE },
-	"--new-workspace": { values: ["local", "worktree"] },
-	"--worktree-mode": { values: ["branch-off", "checkout-branch", "checkout-pr"] },
-	"--worktree-slug": { pattern: ID_RE },
-	"--new-branch": {},
-	"--base": {},
-	"--branch": {},
-	"--pr-number": { pattern: /^\d+$/ },
-	"--forge": { pattern: ID_RE },
 	"--label": { repeat: true, pattern: /^[^=\s]+=[^=]+$/ },
-};
-
-const WORKSPACE_OPTIONS = {
-	"--isolation": { values: ["local", "worktree"] },
-	"--path": {},
-	"--project": { pattern: ID_RE },
-	"--title": {},
-	"--mode": { values: ["branch-off", "checkout-branch", "checkout-pr"] },
-	"--worktree-slug": { pattern: ID_RE },
-	"--new-branch": {},
-	"--base": {},
-	"--branch": {},
-	"--pr-number": { pattern: /^\d+$/ },
-	"--forge": { pattern: ID_RE },
 };
 
 function validateSupervisorLeadTarget(id, family) {
@@ -239,9 +216,6 @@ function commandRun(args, caller) {
 	if (caller.role === "supervisor") {
 		if (!provider.startsWith(`${caller.family}-lead/`)) {
 			fail(`supervisor recovery provider must start with ${caller.family}-lead/`);
-		}
-		if (parsed.seen.has("--workspace") || parsed.seen.has("--new-workspace")) {
-			fail("supervisor recovery must inherit the current workspace");
 		}
 		const labels = [];
 		for (let i = 0; i < parsed.argv.length; i += 2) {
@@ -588,7 +562,7 @@ async function main() {
 	const caller = detectCaller();
 	const [command, ...args] = process.argv.slice(2);
 	if (!command || command === "help" || command === "--help") {
-		console.log("paseo-team commands: providers, models, ls, inspect, logs, send, wait, notify-each, run, archive, workspace-ls, workspace-create, workspace-archive");
+		console.log("paseo-team commands: providers, models, ls, inspect, logs, send, wait, notify-each, run, archive");
 		return;
 	}
 	if (["worker", "reviewer"].includes(caller.role)) {
@@ -644,19 +618,9 @@ async function main() {
 			runPaseo(["archive", requireId(args[0]), "--json"]);
 			break;
 		case "workspace-ls":
-			requireNoArgs(args, command);
-			runPaseo(["workspace", "ls", "--json"]);
-			break;
-		case "workspace-create": {
-			if (caller.role !== "lead") fail("workspace-create is Lead-only");
-			const parsed = parseAllowedOptions(args, WORKSPACE_OPTIONS);
-			if (!parsed.seen.has("--isolation")) fail("workspace-create requires --isolation");
-			runPaseo(["workspace", "create", ...parsed.argv, "--json"]);
-			break;
-		}
+		case "workspace-create":
 		case "workspace-archive":
-			if (caller.role !== "lead" || args.length !== 1) fail("workspace-archive is Lead-only and requires one workspace id");
-			runPaseo(["workspace", "archive", requireId(args[0], "workspace id"), "--json"]);
+			fail("workspace management is disabled; every subagent must inherit the Lead's current workspace");
 			break;
 		default:
 			fail(`unknown command ${JSON.stringify(command)}`);

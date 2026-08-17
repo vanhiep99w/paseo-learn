@@ -71,6 +71,14 @@ export function callsPaseoTeamCli(command) {
 	return PASEO_TEAM_CLI_RE.test(command);
 }
 
+const GIT_WORKTREE_MUTATION_RE =
+	/\bgit\s+worktree\s+(?:add|move|remove|prune|lock|unlock)\b/i;
+
+/** @param {string} command @returns {boolean} */
+export function callsGitWorktreeMutation(command) {
+	return GIT_WORKTREE_MUTATION_RE.test(command);
+}
+
 /** @param {string} command @returns {boolean} */
 export function safeSupervisorCliCommand(command) {
 	return callsPaseoTeamCli(command) && !SHELL_CONTROL_RE.test(command);
@@ -248,6 +256,9 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 			typeof (/** @type {any} */ (toolInput)?.command) === "string"
 				? /** @type {any} */ (toolInput).command
 				: "";
+		if (callsGitWorktreeMutation(command)) {
+			return "Workspace/worktree mutation is disabled. Every subagent must inherit the current Lead workspace.";
+		}
 		if (callsPaseoCli(command)) {
 			return `${role} cannot call raw paseo; use the role-gated $PASEO_TEAM_CLI facade when this role has orchestration authority.`;
 		}

@@ -1,6 +1,6 @@
 ---
 name: paseo-team-lead
-description: Coordinate research, implementation, correction, and independent review through Paseo-managed Claude Code workers/reviewers. Use when orchestrating multi-agent work on a repository — scoping, spawning read-only researchers, delegating a worker to an isolated worktree, monitoring, and running an independent review on a stable candidate SHA.
+description: Coordinate research, implementation, correction, and independent review through Paseo-managed Claude Code workers/reviewers. Use when orchestrating multi-agent work on a repository — scoping, spawning read-only researchers, delegating a worker in the current workspace, monitoring, and running a serialized independent review of a stable SHA or working diff.
 ---
 
 # Paseo Team Lead Workflow (Claude Code)
@@ -71,11 +71,10 @@ For EVERY delegated agent, run this exact cycle. Do not skip steps.
 4. Compute the exact route `<role-provider>/<provider>/<model-id>`. Paseo splits
    at the first slash, so multi-segment model IDs remain valid. Never omit the
    model or `--thinking`; daemon defaults are forbidden.
-5. Create a workspace only when the Human requested one. Otherwise let the
-   caller-scoped CLI inherit the current workspace.
+5. Always inherit the caller's current workspace. Never pass `--workspace`,
+   `--new-workspace`, worktree flags, or run manual `git worktree` commands.
 6. Call `$PASEO_TEAM_CLI run --provider <exact-route> --thinking <id>` plus the
-   validated `--mode` and workspace flags, followed by `-- '<V3 brief>'`. Save
-   the returned child ID.
+   validated `--mode`, followed by `-- '<V3 brief>'`. Save the child ID.
 7. Call `$PASEO_TEAM_CLI inspect <agent-id>` and compare `Provider`, `Model`,
    `Thinking`, and `Mode` with the request. Any mismatch or missing evidence is
    `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrong agent through the
@@ -142,19 +141,19 @@ resolution, or scope clarification.
 
 After implementation:
 
-1. Obtain the exact candidate SHA **and** confirmation the worktree is clean.
-   The Worker's handoff must include `git status --porcelain` output, the last
-   format/test run, `CANDIDATE_SHA`, `BRANCH`, `PUSHED_REMOTE`, and
-   `WORKTREE_CLEAN: yes`. Required order: format → test → commit → verify
-   `git status --porcelain` empty → push (when granted). A dirty candidate is
-   refused by the independent reviewer and must be corrected before review.
-2. Create a fresh Reviewer (`MODE: read-only`, `DISPOSITION:
-   independent-reviewer`) in a **fresh workspace** checked out at the exact
-   candidate SHA — not the worker's own working tree.
-3. Require assigned and observed SHA in its report.
-4. Do not accept review of a different SHA.
-5. Return findings to the original Worker as a full brief (so write authority
-   is re-granted for the correction turn).
+1. Wait until the Worker is idle and obtain its handoff: changed files, last
+   format/test run, current `CANDIDATE_SHA` when committed, and working-tree
+   status. No writer may run during the review window.
+2. Lead records `git rev-parse HEAD` and `git status --porcelain` immediately
+   before review. Start a read-only Reviewer in the **same inherited workspace**
+   with no workspace/worktree flags. The brief identifies either the current
+   exact SHA or the current working diff.
+3. Require the Reviewer to report the assigned target and files reviewed. Lead
+   rechecks HEAD/status afterward; unexpected workspace drift invalidates review.
+4. Return findings to the original Worker as a full brief. Reviewer must be idle
+   before correction starts; Engineer and Reviewer never run concurrently.
+5. Repeat the serialized review after corrections. Never create a temporary
+   directory, project, workspace, or git worktree for review.
 
 ## Completion
 

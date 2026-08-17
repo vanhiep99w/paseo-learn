@@ -120,7 +120,7 @@ old Lead is the Human's decision.
 - A Peer becomes a bot retyping the Lead's solution.
 - Two writers editing the same scope.
 - Lead accepts "done"/"idle"/exit-0 as acceptance.
-- Reviewer shares session or dirty worktree with the Engineer.
+- Reviewer starts while Engineer is active, or the shared workspace drifts during review.
 - Model chosen by guess or daemon default.
 - Runtime model differs from requested and was not reported.
 - Lead edits code "to save time" when the protocol forbids it.

@@ -52,8 +52,10 @@ ngôn ngữ khác cho một output cụ thể.
 
 Lead/Supervisor delegate qua role-gated `$PASEO_TEAM_CLI`. Facade gọi public
 Paseo CLI và giữ parent/workspace qua `PASEO_AGENT_ID`; nó không gọi MCP hoặc
-daemon API trực tiếp. Raw `paseo`, MCP, native subagents và task database riêng
-đều bị cấm. Worker/Reviewer không có orchestration authority.
+daemon API trực tiếp. Mọi subagent bắt buộc dùng cùng workspace hiện tại của
+Lead; wrapper từ chối workspace/worktree flags và workspace management. Raw
+`paseo`, MCP, native subagents và task database riêng đều bị cấm.
+Worker/Reviewer không có orchestration authority.
 
 ### V3 Task Brief là authority channel
 

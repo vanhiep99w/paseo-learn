@@ -96,6 +96,22 @@ result = call({ PASEO_PI_ROLE: "lead" }, [
 assert.equal(result.status, 2);
 assert.match(result.stderr, /requires --thinking/);
 
+result = call({ PASEO_PI_ROLE: "lead" }, [
+	"run",
+	"--provider", "pi-worker/model",
+	"--thinking", "high",
+	"--new-workspace", "worktree",
+	"--", "brief",
+]);
+assert.equal(result.status, 2);
+assert.match(result.stderr, /option "--new-workspace" is not allowed/);
+
+result = call({ PASEO_PI_ROLE: "lead" }, [
+	"workspace-create", "--isolation", "local", "--path", "/tmp/other-project",
+]);
+assert.equal(result.status, 2);
+assert.match(result.stderr, /workspace management is disabled/);
+
 result = call({ PASEO_PI_ROLE: "worker" }, ["providers"]);
 assert.equal(result.status, 2);
 assert.match(result.stderr, /no orchestration authority/);

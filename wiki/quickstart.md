@@ -24,8 +24,10 @@ into a **governed four-role team**:
 Three principles run through everything:
 
 - **Paseo is the only control plane.** Lead/Supervisor reach it through the
-  role-gated `paseo-team` facade over the public Paseo CLI. Raw CLI, MCP,
-  provider-native subagents, and second task databases are forbidden.
+  role-gated `paseo-team` facade over the public Paseo CLI. Every child inherits
+  the Lead's current workspace; workspace/worktree creation and placement are
+  fail-closed. Raw CLI, MCP, provider-native subagents, and second task databases
+  are forbidden.
 - **Capability ≠ authority.** Agents run with full filesystem/network access;
   their *behavior* is bounded by role prompts, tool allowlists, and a fail-closed
   policy layer — not by a sandbox.

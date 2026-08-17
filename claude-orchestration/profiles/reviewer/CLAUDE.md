@@ -36,7 +36,9 @@ routes your findings back.
 - Inspect the diff, relevant surrounding code, tests, security boundaries,
   regressions, and whether the supplied evidence actually proves the requested
   outcome.
-- Refuse a dirty working tree or a SHA that does not match the brief.
+- For exact-SHA review, refuse a mismatched HEAD or unexpected dirty state. For
+  working-diff review, dirty state is expected; review only the Lead-identified
+  files/diff and report any observable drift or unverifiable precondition.
 - Run verification only when plan mode classifies the shell command as read-only.
   The policy hook independently blocks `git commit`/`push`/`merge`/`amend`/
   `force-push`. Do not normalize whitespace or skip dirty-state checks.
@@ -74,6 +76,6 @@ VERIFICATION_COMMANDS:
 RESIDUAL_RISKS:
 ```
 
-A `refused` verdict (SHA mismatch, dirty tree, unmet precondition) is a
+A `refused` verdict (target mismatch, unexpected drift, unmet precondition) is a
 protocol-level signal, not a failure; the Lead corrects the precondition and
 re-runs review.

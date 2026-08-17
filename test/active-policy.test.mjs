@@ -17,6 +17,7 @@ import {
 } from "../claude-orchestration/shared/paseo-team-policy/brief.mjs";
 import {
 	blockReasonForTool,
+	callsGitWorktreeMutation,
 	callsPaseoCli,
 	callsPaseoTeamCli,
 	ownedScopeBlockReason,
@@ -100,6 +101,12 @@ assert.match(
 	blockReasonForTool("supervisor", null, "mcp__paseo__list_agents", {}, repo),
 	/CLI-only/,
 );
+assert.equal(callsGitWorktreeMutation("git worktree add --detach /tmp/review HEAD"), true);
+assert.equal(callsGitWorktreeMutation("git worktree list"), false);
+assert.match(
+	blockReasonForTool("lead", null, "Bash", { command: "git worktree add /tmp/review HEAD" }, repo),
+	/Workspace\/worktree mutation is disabled/,
+);
 assert.equal(callsPaseoCli("$PASEO_CLI run task"), true);
 assert.equal(callsPaseoCli("\"$PASEO_CLI\" run task"), true);
 assert.equal(callsPaseoCli("& $env:PASEO_CLI run task"), true);
@@ -125,6 +132,7 @@ const piPolicySource = readFileSync(
 	"utf8",
 );
 assert.match(piPolicySource, /allow: \["read", "bash"\]/);
+assert.match(piPolicySource, /GIT_WORKTREE_MUTATION_RE/);
 assert.equal(existsSync(path.join(repo, "pi-orchestration", "profiles", "lead", "mcp.json")), false);
 assert.equal(existsSync(path.join(repo, "pi-orchestration", "profiles", "supervisor", "mcp.json")), false);
 

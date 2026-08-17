@@ -323,6 +323,8 @@ function providerConfig() {
 }
 
 const obsoletePreferences = [
+	"Use pi-lead for decomposition and acceptance, pi-worker for bounded writes in the current workspace, and pi-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+	"Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use pi-supervisor in ordinary single-task flows.",
 	"When list_profiles is available, treat a complete profile whose provider matches the chosen pi role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
 	"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
 ];
@@ -336,12 +338,12 @@ const defaultPreferences = {
 		audit: "pi-reviewer",
 	},
 	preferences: [
-		"Use pi-lead for decomposition and acceptance, pi-worker for bounded writes in the current workspace, and pi-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+		"Use pi-lead for decomposition and acceptance, pi-worker for bounded writes, and pi-reviewer for serialized read-only review after the writer is idle. All roles inherit the same current workspace.",
 		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Pi Lead routes to pi-* role providers. Use claude-* or codex-* only when the Human explicitly requests that provider family for the delegation. If the required Pi role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
 		"Agent Profiles remain Human launch presets; CLI orchestration does not infer routes from them. Discover provider/model/thinking availability with `paseo-team providers` and `paseo-team models`, pin every value on `paseo-team run`, and post-verify with `paseo-team inspect`. Never silently fall back.",
 		"Use only the role-gated `paseo-team` facade for orchestration. Do not call raw `paseo`, MCP, native subagents, or a private task database.",
-		"Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use pi-supervisor in ordinary single-task flows.",
+		"Every subagent must inherit the Lead current workspace. Never pass workspace/worktree placement flags, call workspace management, or run manual git worktree commands. Serialize Engineer and Reviewer; keep at most one active writer. Do not use pi-supervisor in ordinary single-task flows.",
 	],
 };
 

@@ -45,8 +45,9 @@ $PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
 ```
 
 Raw `paseo`, MCP, provider-native subagents, direct daemon API calls, and private
-task databases are forbidden orchestration paths. Work still appears in Paseo's
-Subagents track; cross-workspace children remain under their parent.
+task databases are forbidden orchestration paths. Work appears in Paseo's
+Subagents track. Every child inherits the Lead's current workspace; creating or
+selecting another workspace/worktree is forbidden.
 
 ## Capability is not authority
 
@@ -117,18 +118,20 @@ A follow-up through `$PASEO_TEAM_CLI send` that needs authority must **repeat th
 brief**; a plain correction message silently downgrades the Worker to read-only
 for that turn, by design.
 
-## Git SHA is the anchor
+## Serialized shared-workspace review
 
-The commit SHA is the single point of truth between a writer and a reviewer on
-possibly different hosts:
+All agents use the Lead's current workspace; no workspace or git worktree may be
+created. Isolation is temporal rather than filesystem-based:
 
-- Candidate review happens on an **exact SHA** in a fresh detached workspace —
-  not the Worker's working tree.
-- The Reviewer refuses a dirty tree or a SHA that does not match the brief.
-- Correction returns to the **original** Engineer, produces a **new** commit (no
-  amend, no force-push), and the new SHA is reviewed again.
-- Cross-host review requires the Engineer brief to grant both `COMMIT` and
-  `PUSH_TASK_BRANCH` authority (see `docs/multi-host.md`).
+- One writer at a time. Reviewer starts only after Engineer is idle.
+- Lead records HEAD and working-tree status immediately before review and again
+  afterward. Unexpected drift invalidates the review.
+- When a commit exists, review targets the exact current SHA. Otherwise it
+  targets the explicitly identified current working diff.
+- Reviewer is read-only. Correction starts only after Reviewer is idle and
+  returns to the original Engineer; Engineer and Reviewer never overlap.
+- This mode deliberately trades detached-worktree isolation for a single-project,
+  single-workspace UI and requires strict serialization.
 
 ## Role-gated CLI facade
 
@@ -137,12 +140,14 @@ installers place it at `$PASEO_HOME/bin/paseo-team` and set
 `PASEO_TEAM_CLI` in every role provider. The wrapper requires
 `PASEO_AGENT_ID` and exactly one role environment.
 
-- **Lead:** provider/model discovery, workspace lifecycle, spawn, inspect, logs,
+- **Lead:** provider/model discovery, current-workspace spawn, inspect, logs,
   follow-up, completion notification, bounded synchronous wait, and archive.
   `run` requires an exact provider/model route and explicit thinking option.
 - **Supervisor:** observation and Lead messaging, plus one recovery-gated
   successor-Lead `run`. Workspace overrides and non-Lead providers are rejected.
 - **Worker/Reviewer:** every wrapper command is rejected.
+- **Workspace placement:** `run` rejects all workspace/worktree flags and every
+  `workspace-*` facade command fails closed.
 
 `notify-each <id...>` starts one detached, non-agent Node watcher and opens
 concurrent event waits through the CLI. Notifications contain status metadata
@@ -190,8 +195,8 @@ The mandatory CLI cycle is:
 3. `$PASEO_TEAM_CLI models <role-provider>` verifies the exact model and thinking
    option.
 4. `$PASEO_TEAM_CLI run` pins `<role-provider>/<provider>/<model-id>`,
-   `--thinking`, optional `--mode`, labels, and workspace placement. Omitting the
-   model or thinking option is rejected by the wrapper.
+   `--thinking`, optional `--mode`, and labels. Workspace placement flags are
+   rejected so the child always inherits the current workspace.
 5. `$PASEO_TEAM_CLI inspect <agent-id>` verifies observed Provider, Model,
    Thinking, and Mode. Missing or mismatched evidence is
    `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrong agent.

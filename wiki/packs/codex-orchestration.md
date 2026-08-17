@@ -26,7 +26,7 @@ app-server launcher.
 `$PASEO_HOME/bin/paseo-team`. Provider env sets `PASEO_TEAM_CLI` and
 `PASEO_CODEX_ROLE`. The wrapper requires `PASEO_AGENT_ID`, delegates to the
 public Paseo CLI, and enforces exact provider/model + thinking on every spawn.
-Lead batches use one detached `notify-each` watcher instead of blocking waits. The watcher
+Every child inherits the Lead workspace; workspace/worktree flags and management commands are rejected. Lead batches use one detached `notify-each` watcher instead of blocking waits. The watcher
 waits concurrently and sends status only without running an LLM. Non-idle
 statuses notify immediately; idle completions debounce for 1.2 seconds. The Lead
 fetches responses selectively and must inspect permission before asking the

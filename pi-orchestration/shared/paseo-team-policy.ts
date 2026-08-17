@@ -217,6 +217,13 @@ export function callsPaseoTeamCli(command: string): boolean {
 	return PASEO_TEAM_CLI_RE.test(command);
 }
 
+const GIT_WORKTREE_MUTATION_RE =
+	/\bgit\s+worktree\s+(?:add|move|remove|prune|lock|unlock)\b/i;
+
+export function callsGitWorktreeMutation(command: string): boolean {
+	return GIT_WORKTREE_MUTATION_RE.test(command);
+}
+
 export function safeSupervisorCliCommand(command: string): boolean {
 	return callsPaseoTeamCli(command) && !SHELL_CONTROL_RE.test(command);
 }
@@ -738,6 +745,12 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (isToolCallEventType("bash", event)) {
 			const command = event.input.command ?? "";
+			if (callsGitWorktreeMutation(command)) {
+				return {
+					block: true,
+					reason: "Workspace/worktree mutation is disabled. Every subagent must inherit the current Lead workspace.",
+				};
+			}
 			if (callsPaseoCli(command)) {
 				return {
 					block: true,

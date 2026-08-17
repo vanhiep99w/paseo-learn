@@ -26,7 +26,7 @@ all MCP proxy calls are denied by policy.
 `$PASEO_HOME/bin/paseo-team`. Provider env sets `PASEO_TEAM_CLI` and
 `PASEO_PI_ROLE`. The wrapper requires `PASEO_AGENT_ID`, uses the public `paseo`
 CLI, and enforces the role matrix described in
-[Role-gated CLI facade](../architecture.md#role-gated-cli-facade). Lead batches
+[Role-gated CLI facade](../architecture.md#role-gated-cli-facade). Every child inherits the Lead workspace; workspace/worktree flags and management commands are rejected. Lead batches
 use one detached `notify-each` watcher instead of blocking waits. The watcher
 waits concurrently and sends status only without running an LLM. Non-idle
 statuses notify immediately; idle completions debounce for 1.2 seconds. The Lead

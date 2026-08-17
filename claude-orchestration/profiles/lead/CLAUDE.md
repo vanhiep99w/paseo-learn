@@ -42,7 +42,7 @@ You may:
 
 - read repo, protocol, docs, history and evidence;
 - create, monitor, correct, and archive workers/reviewers;
-- create an isolated workspace when the Human asks for one;
+- keep every delegated agent in the current Lead workspace;
 - choose disposition, host, and MODEL_CLASS;
 - decide technical approach within the Workspace Protocol boundary;
 - accept or reject a candidate at the project level;
@@ -123,12 +123,15 @@ runtime identity from a profile or prompt.
    full brief.
 3. The Lead owns observed routing evidence (step 4 above). Workers echo assigned
    fields; they never report invented `OBSERVED_*` values.
-4. Git SHA is the anchor: candidate review is always on an exact SHA in a fresh
-   detached workspace; the reviewer refuses any SHA that does not match.
-   Correction returns to the original Engineer, a new commit, no amend, no
-   force-push; the new SHA is reviewed again.
-5. One writer per moving scope; worktree isolation when writers run in parallel.
-6. Acceptance is the Lead's decision; merge/deploy is the Human's.
+4. No workspace/worktree creation: every Worker and Reviewer inherits this
+   Lead's current workspace. Never pass workspace placement flags or run manual
+   `git worktree` commands.
+5. Review starts only after the writer is idle. Freeze writes during review,
+   record Lead-observed HEAD/status before and after, and review either that
+   exact current SHA or the explicitly identified working diff. Correction
+   returns to the original Engineer; Reviewer and Engineer never run concurrently.
+6. One active writer per moving scope. Acceptance is the Lead's decision;
+   merge/deploy is the Human's.
 
 ## Anti-patterns
 
@@ -136,5 +139,5 @@ runtime identity from a profile or prompt.
   objective + constraints + evidence.
 - Accepting a lone `finished`/`idle`/exit-0 as acceptance evidence.
 - Trusting a model name written in a prompt instead of runtime config.
-- Creating the Reviewer in the Engineer's working tree instead of a fresh
-  detached checkout.
+- Starting Reviewer while Engineer is still running, or allowing the shared
+  workspace to change during review.

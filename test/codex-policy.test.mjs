@@ -22,6 +22,7 @@ assert.equal(blockReasonForTool("supervisor", null, "PowerShell", { command: "& 
 assert.match(blockReasonForTool("supervisor", null, "Bash", { command: "git status" }, repo), /restricted/);
 assert.match(blockReasonForTool("supervisor", null, "PowerShell", { command: "git status" }, repo), /restricted/);
 assert.match(blockReasonForTool("lead", null, "Bash", { command: "paseo ls" }, repo), /raw paseo/);
+assert.match(blockReasonForTool("lead", null, "Bash", { command: "git worktree add /tmp/review HEAD" }, repo), /Workspace\/worktree mutation is disabled/);
 assert.match(gitAuthorityBlockReason("git push origin main", { pushTaskBranch: true }, "T-CODEX"), /branch-scoped/);
 assert.equal(gitAuthorityBlockReason("git push -u origin HEAD:refs/heads/agent/T-CODEX", { pushTaskBranch: true }, "T-CODEX"), null);
 const home = mkdtempSync(path.join(tmpdir(), "paseo-codex-hook-")); mkdirSync(path.join(home, "hooks"));

@@ -39,6 +39,8 @@ for (const file of leadContracts) {
 		`${file} must keep completion notifications response-free`);
 	assert.match(source, /Never auto-approve|không tự approve/i,
 		`${file} must escalate permission instead of approving it`);
+	assert.match(source, /Never (pass|create)[\s\S]{0,80}workspace|No workspace\/worktree creation/i,
+		`${file} must keep every child in the current workspace`);
 }
 
 const piLeadSkill = read("pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md");
