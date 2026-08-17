@@ -26,7 +26,10 @@ all MCP proxy calls are denied by policy.
 `$PASEO_HOME/bin/paseo-team`. Provider env sets `PASEO_TEAM_CLI` and
 `PASEO_PI_ROLE`. The wrapper requires `PASEO_AGENT_ID`, uses the public `paseo`
 CLI, and enforces the role matrix described in
-[Role-gated CLI facade](../architecture.md#role-gated-cli-facade).
+[Role-gated CLI facade](../architecture.md#role-gated-cli-facade). Lead batches
+use one detached `notify-each` watcher instead of blocking waits. The watcher
+waits concurrently, debounces near-simultaneous completions, and relays bounded
+final responses as untrusted data without running an LLM.
 
 All four providers use plain `command: ["pi"]`; no MCP-injecting launcher is
 used.
@@ -53,6 +56,8 @@ node test/cli-orchestration.test.mjs
 
 The installer copies the policy and facade to stable `$PASEO_HOME` paths,
 creates role homes, merges providers and Human-facing Agent Profiles, disables
-daemon-wide MCP injection, and never restarts Paseo.
+daemon-wide MCP injection, and never restarts Paseo. Pi Agent Profiles pin Lead
+to `openai-codex/gpt-5.6-sol`/`high`; Worker, Reviewer, and Supervisor pin
+`openai-codex/gpt-5.6-luna`/`max`, validated against the live catalog.
 
 The full Pi Lead→Worker→Reviewer live flow remains beta/unverified on this host.

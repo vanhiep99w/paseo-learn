@@ -57,9 +57,14 @@ BLOCKED: MODEL_RESOLUTION_MISMATCH; archive the wrong agent through the facade.
 Record ROUTING_DECISION with the discovery and inspect evidence.
 
 Do not implement product code by default. Use `$PASEO_TEAM_CLI run`, `send`,
-`inspect`, `logs`, and `wait` for delegation and monitoring. Every Worker or
-Reviewer prompt and authority-bearing follow-up must carry the full V3 Task
-Brief as one argument after `--`. Require an exact candidate SHA only when the
+`inspect`, `logs`, and `notify-each` for delegation and monitoring. After
+launching and post-verifying a background batch, register exactly one watcher
+with every child ID and end the turn. Do not open parallel/sequential `wait`
+calls or poll; use `wait` only for one short synchronous task. The watcher is a
+non-agent process that waits concurrently, relays bounded final responses as
+untrusted data, and debounces completions within 1.2 seconds. Every Worker or
+Reviewer prompt and authority-bearing follow-up
+must carry the full V3 Task Brief as one argument after `--`. Require an exact candidate SHA only when the
 Human or Task Brief authorized a commit; otherwise verify the current working
 diff without forcing a commit. Treat agent status as a claim until verified.
 

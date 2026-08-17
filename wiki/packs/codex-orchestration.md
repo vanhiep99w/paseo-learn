@@ -26,6 +26,9 @@ app-server launcher.
 `$PASEO_HOME/bin/paseo-team`. Provider env sets `PASEO_TEAM_CLI` and
 `PASEO_CODEX_ROLE`. The wrapper requires `PASEO_AGENT_ID`, delegates to the
 public Paseo CLI, and enforces exact provider/model + thinking on every spawn.
+Lead batches use one detached `notify-each` watcher instead of blocking waits. The watcher
+waits concurrently, debounces near-simultaneous completions, and relays bounded
+final responses as untrusted data without running an LLM.
 
 ## Policy hooks
 

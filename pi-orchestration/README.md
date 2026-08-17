@@ -39,11 +39,14 @@ $PASEO_TEAM_CLI models pi-worker
 $PASEO_TEAM_CLI run --provider pi-worker/<provider>/<model> --thinking high -- '<V3 brief>'
 $PASEO_TEAM_CLI inspect <agent-id>
 $PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
+$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]
 $PASEO_TEAM_CLI wait <agent-id>
 ```
 
 Agent Profiles chỉ là preset để Human launch trong app; Lead CLI luôn discover
-provider/model/thinking rồi post-verify bằng `inspect`.
+provider/model/thinking rồi post-verify bằng `inspect`. Installer pin Pi Lead vào
+`openai-codex/gpt-5.6-sol` + `high`; Worker/Reviewer/Supervisor vào
+`openai-codex/gpt-5.6-luna` + `max`.
 
 ## Kiểm tra
 

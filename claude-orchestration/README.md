@@ -39,6 +39,7 @@ $PASEO_TEAM_CLI models claude-worker
 $PASEO_TEAM_CLI run --provider claude-worker/<provider>/<model> --thinking high -- '<V3 brief>'
 $PASEO_TEAM_CLI inspect <agent-id>
 $PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
+$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]
 ```
 
 ## Kiểm tra

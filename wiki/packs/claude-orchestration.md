@@ -24,7 +24,10 @@ No role receives `--mcp-config`. All four providers use plain
 `claude-orchestration/bin/paseo-team` is installed at
 `$PASEO_HOME/bin/paseo-team`. Provider env sets `PASEO_TEAM_CLI` and
 `PASEO_CLAUDE_ROLE`. The wrapper requires `PASEO_AGENT_ID`, shells out to the
-public Paseo CLI, and preserves caller parent/workspace semantics.
+public Paseo CLI, and preserves caller parent/workspace semantics. Lead batches
+use one detached `notify-each` watcher instead of blocking waits. The watcher
+waits concurrently, debounces near-simultaneous completions, and relays bounded
+final responses as untrusted data without running an LLM.
 
 ## Hard policy hooks
 

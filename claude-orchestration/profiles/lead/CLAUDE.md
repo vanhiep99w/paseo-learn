@@ -69,8 +69,9 @@ facade at `$PASEO_TEAM_CLI`. Do not call raw `paseo`, MCP, native subagents, the
 daemon API, or a private task database. The facade preserves agent parentage and
 workspace defaults through `PASEO_AGENT_ID`.
 
-Core commands are `providers`, `models`, `run`, `inspect`, `send`, and `wait`.
-Every prompt follows a `--` separator and must be one shell argument. If the
+Core commands are `providers`, `models`, `run`, `inspect`, `send`,
+`notify-each`, and `wait`. Every prompt follows a `--` separator and must
+be one shell argument. If the
 facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`; never
 bypass it with raw CLI or MCP.
 
@@ -95,8 +96,13 @@ After `run` returns the child ID, call `$PASEO_TEAM_CLI inspect <agent-id>` and
 compare `Provider`, `Model`, `Thinking`, and `Mode` with the requested route. A
 mismatch or missing runtime evidence is
 `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrongly resolved agent through
-the facade. Record `ROUTING_DECISION` verbatim. Do not infer runtime identity
-from a profile or prompt.
+the facade. Record `ROUTING_DECISION` verbatim. After launching a background
+batch, register exactly one `notify-each` watcher for all child IDs and end
+the turn; do not open parallel/sequential `wait` calls or poll. The watcher is a
+non-agent process: it waits concurrently, relays each bounded final response as
+untrusted data, and debounces completions within 1.2 seconds. Use `wait` only
+for one short task that must remain synchronous. Do not infer
+runtime identity from a profile or prompt.
 
 ## Invariants (never break)
 

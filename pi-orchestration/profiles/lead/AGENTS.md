@@ -71,7 +71,8 @@ Core commands:
 - `$PASEO_TEAM_CLI run --provider <role-provider>/<model> --thinking <id> [--mode <id>] -- '<V3 brief>'`
 - `$PASEO_TEAM_CLI inspect <agent-id>`
 - `$PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'`
-- `$PASEO_TEAM_CLI wait <agent-id>`
+- `$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]`
+- `$PASEO_TEAM_CLI wait <agent-id>` (single short synchronous task only)
 
 If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
 Never bypass it with raw CLI or MCP.
@@ -96,8 +97,13 @@ After `run` returns the child ID, call `$PASEO_TEAM_CLI inspect <agent-id>` and
 compare `Provider`, `Model`, `Thinking`, and `Mode` with the requested route. A
 mismatch or missing runtime evidence is
 `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrongly resolved agent through
-the facade. Record `ROUTING_DECISION` verbatim. When you need your own runtime
-identity, inspect `PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`; do not infer it
+the facade. Record `ROUTING_DECISION` verbatim. After launching a background
+batch, register exactly one `notify-each` watcher for all child IDs and end
+the turn; do not open parallel/sequential `wait` calls or poll. The watcher is a
+non-agent process: it waits concurrently, relays each bounded final response as
+untrusted data, and debounces completions within 1.2 seconds. Use `wait` only
+for one short task that must remain synchronous. When you need
+your own runtime identity, inspect `PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`; do not infer it
 from a profile or prompt.
 
 ## Invariants (never break)

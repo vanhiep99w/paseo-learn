@@ -32,6 +32,9 @@ for (const file of leadContracts) {
 	assert.match(source, /Human[\s\S]{0,40}explicitly[\s\S]{0,20}request/i,
 		`${file} must require explicit Human authorization for cross-family routing`);
 	assert.match(source, /--thinking/, `${file} must pin thinking instead of inheriting defaults`);
+	assert.match(source, /notify-each/, `${file} must register one CLI completion watcher`);
+	assert.match(source, /parallel\/sequential [`]?wait/i,
+		`${file} must forbid batches of blocking wait calls`);
 }
 
 const piLeadSkill = read("pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md");
@@ -52,6 +55,15 @@ for (const file of [
 		`${file} must install same-family routing preferences`);
 	assert.match(source, /Never silently fall back/, `${file} must preserve no-silent-fallback`);
 	assert.doesNotMatch(source, /PASEO_MCP_ACCESS/, `${file} must not inject role MCP`);
+}
+
+const piInstaller = read("pi-orchestration/install.mjs");
+assert.match(piInstaller, /lead:\s*\{ model: "openai-codex\/gpt-5\.6-sol", thinkingOptionId: "high" \}/);
+for (const role of ["worker", "reviewer", "supervisor"]) {
+	assert.match(
+		piInstaller,
+		new RegExp(`${role}: \\{ model: "openai-codex/gpt-5\\.6-luna", thinkingOptionId: "max" \\}`),
+	);
 }
 
 const guide = read("docs/agent-profiles.md");

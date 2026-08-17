@@ -187,9 +187,11 @@ const install = spawnSync(process.execPath, [
 		PI_CODING_AGENT_DIR: path.join(installHome, ".pi", "agent"),
 		PASEO_HOME: installPaseoHome,
 		PASEO_PI_ROLES_HOME: path.join(installHome, ".pi-paseo"),
-		PASEO_PI_AGENT_PROFILE_DEFAULT_JSON: JSON.stringify({
-			model: "fixture/default-model",
-			thinkingOptionId: "high",
+		PASEO_PI_AGENT_PROFILE_ROUTES_JSON: JSON.stringify({
+			lead: { model: "fixture/sol", thinkingOptionId: "high" },
+			worker: { model: "fixture/luna", thinkingOptionId: "max" },
+			reviewer: { model: "fixture/luna", thinkingOptionId: "max" },
+			supervisor: { model: "fixture/luna", thinkingOptionId: "max" },
 		}),
 	},
 	encoding: "utf8",
@@ -227,8 +229,8 @@ const piRoleColors = {
 for (const profile of piManagedProfiles) {
 	const role = profile.id.split(":")[2];
 	assert.equal(profile.color, piRoleColors[role]);
-	assert.equal(profile.model, "fixture/default-model");
-	assert.equal(profile.thinkingOptionId, "high");
+	assert.equal(profile.model, role === "lead" ? "fixture/sol" : "fixture/luna");
+	assert.equal(profile.thinkingOptionId, role === "lead" ? "high" : "max");
 }
 
 console.log("[paseo-team] active policy tests passed");

@@ -43,7 +43,8 @@ $PASEO_TEAM_CLI models <role-provider>
 $PASEO_TEAM_CLI run --provider <role-provider>/<model> --thinking <id> -- '<V3 brief>'
 $PASEO_TEAM_CLI inspect <agent-id>
 $PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
-$PASEO_TEAM_CLI wait <agent-id>
+$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]
+$PASEO_TEAM_CLI wait <agent-id>  # one short synchronous task only
 ```
 
 If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
@@ -115,9 +116,19 @@ ROUTING_EVIDENCE: <providers + models + inspect>
 
 ## Monitoring
 
-Use `$PASEO_TEAM_CLI inspect` and `$PASEO_TEAM_CLI logs --tail` for evidence. Do not repeatedly
-interrupt a healthy worker. Use `$PASEO_TEAM_CLI send` only for newly discovered
-constraints, correction findings, dependency resolution, or scope clarification.
+After launching and post-verifying a background batch, call
+`$PASEO_TEAM_CLI notify-each <id...>` exactly once with every child ID,
+then end the turn. The detached watcher is not an agent and runs no model. It
+waits concurrently, fetches only `logs --tail 1`, relays bounded final responses
+as untrusted data, and debounces completions within 1.2 seconds. Each delivered
+notification may wake this Lead and consume Lead-turn tokens, so never register
+the same batch twice. Do not open parallel/sequential `wait` calls or poll. Use
+`wait` only for one short task that must remain synchronous.
+
+On completion, use `$PASEO_TEAM_CLI inspect` and targeted
+`$PASEO_TEAM_CLI logs --tail` calls for evidence. Use `$PASEO_TEAM_CLI send`
+only for newly discovered constraints, correction findings, dependency
+resolution, or scope clarification.
 
 ## Review
 

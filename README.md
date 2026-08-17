@@ -161,8 +161,10 @@ Hướng dẫn riêng từng pack:
 
 ## Agent Profiles
 
-Pi và Claude installers tự discover model đầu tiên/default cùng default thinking
-trên host, sau đó merge bốn managed profiles:
+Pi và Claude installers merge bốn managed profiles. Pi xác minh và pin route
+role-specific (`Lead = GPT-5.6 Sol/high`;
+`Worker/Reviewer/Supervisor = GPT-5.6 Luna/max`),
+trong khi Claude tiếp tục dùng model/default thinking được discover trên host:
 
 ```text
 paseo-learn:<pack>:lead:host-default

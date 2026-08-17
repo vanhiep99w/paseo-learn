@@ -16,8 +16,8 @@
  *   - four providers (pi-lead/worker/reviewer/supervisor) are merged into
  *     ~/.paseo/config.json with daemon-wide MCP injection disabled;
  *   - four namespaced Agent Profiles are merged without replacing Human-owned
- *     entries; they pin the first/default model advertised by the live Pi
- *     catalog and fail closed on managed-profile conflicts unless --force;
+ *     entries; Lead pins GPT-5.6 Sol/high, while Worker/Reviewer/Supervisor pin
+ *     GPT-5.6 Luna/max, validated against the live Pi catalog;
  *   - ~/.paseo/orchestration-preferences.json is merged as fallback routing.
  *
  * The installer never restarts the Paseo daemon and backs up JSON first.
@@ -86,7 +86,13 @@ const preferencesPath = path.join(paseoHome, "orchestration-preferences.json");
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 
 const roles = ["lead", "worker", "reviewer", "supervisor"];
-const profileDefaultEnv = "PASEO_PI_AGENT_PROFILE_DEFAULT_JSON";
+const profileRoutesEnv = "PASEO_PI_AGENT_PROFILE_ROUTES_JSON";
+const defaultProfileRoutes = {
+	lead: { model: "openai-codex/gpt-5.6-sol", thinkingOptionId: "high" },
+	worker: { model: "openai-codex/gpt-5.6-luna", thinkingOptionId: "max" },
+	reviewer: { model: "openai-codex/gpt-5.6-luna", thinkingOptionId: "max" },
+	supervisor: { model: "openai-codex/gpt-5.6-luna", thinkingOptionId: "max" },
+};
 
 const agentProfileSpecs = {
 	lead: {
@@ -139,7 +145,23 @@ function assertAgentProfilesPaseoVersion() {
 	}
 }
 
-function parseAgentProfileDefault(value, source) {
+function parseAgentProfileRoute(value, source) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`${source} must be a JSON object`);
+	}
+	const model = typeof value.model === "string" ? value.model.trim() : "";
+	const thinkingOptionId =
+		typeof value.thinkingOptionId === "string"
+			? value.thinkingOptionId.trim()
+			: "";
+	if (!model) throw new Error(`${source}.model must be a non-empty string`);
+	if (!thinkingOptionId) {
+		throw new Error(`${source}.thinkingOptionId must be a non-empty string`);
+	}
+	return { model, thinkingOptionId };
+}
+
+function parseAgentProfileRoutes(value, source) {
 	let parsed;
 	try {
 		parsed = typeof value === "string" ? JSON.parse(value) : value;
@@ -147,25 +169,19 @@ function parseAgentProfileDefault(value, source) {
 		throw new Error(`${source} is not valid JSON: ${error.message}`);
 	}
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		throw new Error(`${source} must be a JSON object`);
+		throw new Error(`${source} must be a JSON object keyed by role`);
 	}
-	const model = typeof parsed.model === "string" ? parsed.model.trim() : "";
-	if (!model) {
-		throw new Error(`${source}.model must be a non-empty string`);
-	}
-	const thinkingOptionId =
-		typeof parsed.thinkingOptionId === "string"
-			? parsed.thinkingOptionId.trim()
-			: "";
-	return { model, ...(thinkingOptionId ? { thinkingOptionId } : {}) };
+	return Object.fromEntries(
+		roles.map((role) => [
+			role,
+			parseAgentProfileRoute(parsed[role], `${source}.${role}`),
+		]),
+	);
 }
 
-function discoverAgentProfileDefault() {
-	if (process.env[profileDefaultEnv]) {
-		return parseAgentProfileDefault(
-			process.env[profileDefaultEnv],
-			profileDefaultEnv,
-		);
+function discoverAgentProfileRoutes() {
+	if (process.env[profileRoutesEnv]) {
+		return parseAgentProfileRoutes(process.env[profileRoutesEnv], profileRoutesEnv);
 	}
 	const result = spawnSync(
 		"paseo",
@@ -173,11 +189,11 @@ function discoverAgentProfileDefault() {
 		{ encoding: "utf8", timeout: 60_000 },
 	);
 	if (result.error) {
-		throw new Error(`Cannot discover Pi profile model: ${result.error.message}`);
+		throw new Error(`Cannot discover Pi profile models: ${result.error.message}`);
 	}
 	if (result.status !== 0) {
 		throw new Error(
-			`Cannot discover Pi profile model: ${(result.stderr || result.stdout || "paseo provider models failed").trim()}`,
+			`Cannot discover Pi profile models: ${(result.stderr || result.stdout || "paseo provider models failed").trim()}`,
 		);
 	}
 	let models;
@@ -187,27 +203,32 @@ function discoverAgentProfileDefault() {
 		throw new Error(`Cannot parse Pi model catalog: ${error.message}`);
 	}
 	if (!Array.isArray(models) || models.length === 0) {
-		throw new Error("Pi model catalog is empty; refusing to create provider-only Agent Profiles");
+		throw new Error("Pi model catalog is empty; refusing to create Agent Profiles");
 	}
-	const first = models[0];
-	return parseAgentProfileDefault(
-		{
-			model: first.id,
-			thinkingOptionId: first.defaultThinkingOptionId ?? undefined,
-		},
-		"Pi model catalog default",
-	);
+	const routes = parseAgentProfileRoutes(defaultProfileRoutes, "defaultProfileRoutes");
+	for (const [role, route] of Object.entries(routes)) {
+		const model = models.find((candidate) => candidate?.id === route.model);
+		if (!model) {
+			throw new Error(`Pi ${role} Agent Profile model is unavailable: ${route.model}`);
+		}
+		const options = Array.isArray(model.thinkingOptionIds)
+			? model.thinkingOptionIds
+			: [];
+		if (!options.includes(route.thinkingOptionId)) {
+			throw new Error(
+				`Pi ${role} Agent Profile thinking option is unavailable: ${route.model}/${route.thinkingOptionId}`,
+			);
+		}
+	}
+	return routes;
 }
 
-function managedAgentProfiles(profileDefault) {
+function managedAgentProfiles(profileRoutes) {
 	return roles.map((role) => ({
 		id: `paseo-learn:pi:${role}:host-default`,
 		...agentProfileSpecs[role],
 		provider: `pi-${role}`,
-		model: profileDefault.model,
-		...(profileDefault.thinkingOptionId
-			? { thinkingOptionId: profileDefault.thinkingOptionId }
-			: {}),
+		...profileRoutes[role],
 	}));
 }
 
@@ -587,15 +608,18 @@ async function main() {
 	for (const problem of problems) {
 		console.warn(`warning: ${problem}`);
 	}
-	// Resolve the exact host model before writing anything. Discovery failure is
-	// fatal so an interrupted install cannot leave provider-only profiles behind.
+	// Resolve and validate every role route before writing anything. Discovery
+	// failure is fatal so an interrupted install cannot leave stale profiles.
 	assertAgentProfilesPaseoVersion();
-	const profileDefault = discoverAgentProfileDefault();
-	const profiles = managedAgentProfiles(profileDefault);
+	const profileRoutes = discoverAgentProfileRoutes();
+	const profiles = managedAgentProfiles(profileRoutes);
 	const config = await preparePaseoConfig(profiles);
-	console.log(
-		`Agent Profiles: Pi host default ${profileDefault.model}${profileDefault.thinkingOptionId ? ` (${profileDefault.thinkingOptionId})` : ""}`,
-	);
+	console.log("Agent Profiles: Pi role routes");
+	for (const role of roles) {
+		console.log(
+			`  ${role}: ${profileRoutes[role].model} (${profileRoutes[role].thinkingOptionId})`,
+		);
+	}
 
 	console.log(`\n== shared policy ==`);
 	await installOwnedFile(sourceSharedExt, installedSharedExt, 0o600);

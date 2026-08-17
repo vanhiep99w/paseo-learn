@@ -138,11 +138,21 @@ installers place it at `$PASEO_HOME/bin/paseo-team` and set
 `PASEO_AGENT_ID` and exactly one role environment.
 
 - **Lead:** provider/model discovery, workspace lifecycle, spawn, inspect, logs,
-  follow-up, wait, and archive. `run` requires an exact provider/model route and
-  explicit thinking option.
+  follow-up, completion notification, bounded synchronous wait, and archive.
+  `run` requires an exact provider/model route and explicit thinking option.
 - **Supervisor:** observation and Lead messaging, plus one recovery-gated
   successor-Lead `run`. Workspace overrides and non-Lead providers are rejected.
 - **Worker/Reviewer:** every wrapper command is rejected.
+
+`notify-each <id...>` starts one detached, non-agent Node watcher. It opens
+concurrent event waits through the CLI, fetches only each agent's final response
+with `logs --tail 1`, bounds response size, and marks it as untrusted data.
+Completions within 1.2 seconds are debounced into one prompt; otherwise each
+agent wakes the Lead immediately. The final event is
+`PASEO_TEAM_BATCH_COMPLETED`, so no extra batch message is needed. Deterministic
+state under `$PASEO_HOME/paseo-team-watchers/` prevents duplicate registration.
+Leads end their turn after registration; manual waits and polling are forbidden
+except one short synchronous task.
 
 The Pi extension and Claude/Codex hooks additionally block raw `paseo`, all MCP
 paths, and wrapper use by Worker/Reviewer. Supervisor shell access is restricted

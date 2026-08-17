@@ -51,6 +51,16 @@ paseo-learn:<pack>:supervisor:host-default
 Màu role: Lead `blue`, Worker `amber`, Reviewer `violet`, Supervisor `red`.
 Codex profiles vẫn do Human quản lý thủ công.
 
+Pi installer pin route theo role và xác minh exact model/thinking trong live
+catalog trước khi ghi:
+
+| Pi role | Model | Thinking |
+|---|---|---|
+| Lead | `openai-codex/gpt-5.6-sol` | `high` |
+| Worker | `openai-codex/gpt-5.6-luna` | `max` |
+| Reviewer | `openai-codex/gpt-5.6-luna` | `max` |
+| Supervisor | `openai-codex/gpt-5.6-luna` | `max` |
+
 Các profile này phục vụ UI launch; chúng không thay đổi CLI routing contract.
 Installer cố ý không ghi `modeId`/`featureValues` vào managed defaults để không
 override policy trong role home.
@@ -68,7 +78,7 @@ override policy trong role home.
 Có thể pin model discovery trong test/offline:
 
 ```bash
-PASEO_PI_AGENT_PROFILE_DEFAULT_JSON='{"model":"provider/model","thinkingOptionId":"high"}' ./install pi
+PASEO_PI_AGENT_PROFILE_ROUTES_JSON='{"lead":{"model":"fixture/sol","thinkingOptionId":"high"},"worker":{"model":"fixture/luna","thinkingOptionId":"max"},"reviewer":{"model":"fixture/luna","thinkingOptionId":"max"},"supervisor":{"model":"fixture/luna","thinkingOptionId":"max"}}' ./install pi
 PASEO_CLAUDE_AGENT_PROFILE_DEFAULT_JSON='{"model":"model-id","thinkingOptionId":"high"}' ./install claude
 ```
 
