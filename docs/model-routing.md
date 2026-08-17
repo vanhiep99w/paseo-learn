@@ -1,147 +1,60 @@
-# Model Routing — cấu hình, truyền và xác minh model
+# Model routing — CLI-only contract
 
-Tài liệu này mô tả kiến trúc model routing bốn lớp và cách vận hành **không
-silent fallback**. Mọi command trong file đã chạy thật trên Paseo 0.2.5 +
-Pi 0.83.0 + pi-mcp-adapter 2.19.0 (Windows host `desktop-m1a2r16`,
-2026-08-04) trừ khi ghi khác đi.
+Active packs route agents through `$PASEO_TEAM_CLI`, which wraps the public
+Paseo CLI. MCP, native subagents and daemon-default model inheritance are not
+valid routing paths.
 
-## Bốn lớp
+## Inputs
 
-```text
-Lớp 1  Pi model inventory (per host, KHÔNG commit)
-         pi install, ~/.pi/agent/auth.json, credential env,
-         ~/.pi/agent/models.json (custom provider/model), extension/package
-              │
-Lớp 2  Paseo role profiles (commit template) — ĐÚNG 3 profile:
-         pi-supervisor / pi-lead / pi-peer (extends "pi", chỉ env PASEO_PI_ROLE)
-              │
-Lớp 3  Logical model classes (commit, trong repo):
-         MONITOR_ECONOMY | FAST_READ | CODING_MEDIUM | REASONING_HIGH | REVIEW_HIGH
-              │
-Lớp 4  Host-local route (KHÔNG commit):
-         ~/.paseo-pi-team/model-routing.local.json
-         CLASS → { paseoProvider, model: <pi-provider>/<model-id>, thinking }
-```
+1. Human request and same-family authority.
+2. Role/disposition and `MODEL_CLASS`.
+3. `$PASEO_TEAM_CLI providers` health output.
+4. `$PASEO_TEAM_CLI models <role-provider>` model/thinking catalog.
+5. `$PASEO_TEAM_CLI inspect <agent-id>` runtime evidence.
 
-**Quyết định có chủ đích:** không pin danh sách model vào custom provider
-profile được commit (dù `ProviderOverrideSchema.models` của Paseo 0.2.5 hỗ
-trợ). Lý do: catalog model là host-specific; pin vào config chung sẽ cần một
-provider mỗi model và nhân bản cấu hình môi trường lên repo. Model được chọn ở
-Lớp 4 và truyền exact lúc `create_agent`.
+Agent Profiles are Human UI presets, not routing input for Lead.
 
-Paseo v0.4.0 thêm một khái niệm khác là **Agent Profile**, lưu host-wide trong
-`daemon.agentProfiles`. Active packs đọc nó qua `list_profiles` như một route
-candidate. Pi/Claude installers có thể tạo namespaced host-default profiles,
-trong khi Human profiles vẫn được giữ nguyên; các giá trị host-local không được
-commit vào pack. Agent Profile không phải custom provider profile và không thay
-pre/post verification. Same-family routing cũng là mặc định bắt buộc: Pi Lead
-chọn `pi-*`, Claude Lead chọn `claude-*`, và Codex Lead chọn `codex-*`.
-Cross-family chỉ được phép khi Human chỉ định rõ family cho delegation đó; nếu
-same-family route unavailable thì block và hỏi, không tự đổi family. Xem
-[`agent-profiles.md`](agent-profiles.md).
-
-## Vì sao routing phải strict — ba silent-fallback đã xác minh
-
-1. **Paseo ép thinking không hợp lệ về `medium` một cách âm thầm.**
-   `PiRpcAgentClient.createSession` gọi
-   `normalizePiThinkingOption(input) ?? "medium"` — truyền `thinking: "turbo"`
-   chạy êm ở mức medium. Nguồn: `server/agent/providers/pi/agent.js`.
-2. **Paseo `list_models` cho pi báo cả 7 thinking options cho mọi model
-   `reasoning: true`**, bất kể `thinkingLevelMap` trong
-   `~/.pi/agent/models.json`; pi docs nói rõ entry `null` nghĩa là level
-   không được hỗ trợ và bị **clamp** (hidden/skipped/clamped away).
-   → preflight cross-check `thinkingLevelMap` và cảnh báo.
-3. **`--model` của pi là pattern** (docs pi, hỗ trợ `provider/id` và
-   partial match). Model ID không chính xác có thể khớp model khác.
-   → luôn truyền exact `provider/id`.
-
-Cùng lắp ráp lại, **cơ chế bảo vệ là: pre-validate (list_models) + post-verify
-(observed runtimeInfo)**. Khi model không tồn tại, pi fail với status `error`
-(không rơi về model khác — đã verify live); nhưng thinking clamp và pattern
-match **không** báo lỗi, nên observed-check là bắt buộc.
-
-## Chu trình bắt buộc của Lead
-
-Reference pack cũ dùng: `MODEL_CLASS` → route local → `list_providers` →
-`list_models` → exact string → `create_agent(provider=..., settings=
-{thinkingOptionId})` → `get_agent_status` → so khớp `runtimeInfo` → lệch thì
-`BLOCKED: MODEL_RESOLUTION_MISMATCH` và archive agent sai.
-
-Active packs trên Paseo v0.4.0+ thêm `list_profiles` trước discovery. Profile
-chỉ đề xuất route; Lead vẫn xác minh provider/model/thinking, dùng
-`inspect_provider` cho mode/features, rồi post-verify toàn bộ runtime state.
-Profile stale bị reject có ghi nhận, không bị sửa hoặc fallback âm thầm.
-
-## Transmission format (đã xác minh bằng source Paseo 0.2.5)
+## Mandatory cycle
 
 ```text
-create_agent.provider = "<role-profile>/<pi-provider>/<model-id>"
+providers
+→ models <role-provider>
+→ run --provider <role-provider>/<provider>/<model-id> --thinking <id>
+→ inspect <agent-id>
 ```
 
-Paseo tách ở **dấu `/` đầu tiên** (`resolveRequiredProviderModel`,
-`server/agent/mcp-shared.js`):
+Rules:
+
+- same-family role provider by default;
+- cross-family only from an explicit Human request;
+- exact provider/model and thinking are mandatory;
+- optional mode must be explicit and post-verified;
+- observed Provider/Model/Thinking/Mode must match;
+- mismatch or missing evidence → `BLOCKED: MODEL_RESOLUTION_MISMATCH` and archive
+  the wrong agent through the facade;
+- never silently clamp, substitute or omit a field.
+
+## Routing record
 
 ```text
-"pi-peer/Minnyat/deepseek-v4-flash"      → provider=pi-peer, model=Minnyat/deepseek-v4-flash
-"pi-peer/openrouter/vendor/model-name"   → provider=pi-peer, model=openrouter/vendor/model-name
+ROUTING_DECISION
+TASK_ID:
+DISPOSITION:
+MODEL_CLASS:
+PASEO_PROVIDER:
+PROVIDER_FAMILY_AUTHORITY: SAME_FAMILY_DEFAULT | HUMAN_EXPLICIT
+HUMAN_CROSS_FAMILY_REQUEST:
+REQUESTED_MODEL:
+REQUESTED_THINKING:
+REQUESTED_MODE:
+OBSERVED_PROVIDER:
+OBSERVED_MODEL:
+OBSERVED_THINKING:
+OBSERVED_MODE:
+WORKSPACE_REF:
+AGENT_REF:
+ROUTING_EVIDENCE: <providers + models + inspect>
 ```
 
-Thinking truyền riêng qua `settings.thinkingOptionId`
-(pi levels: `off|minimal|low|medium|high|xhigh|max`).
-
-## Bootstrap command đã verify live
-
-```bash
-# Human/Supervisor/Lead/Peer chạy trực tiếp, local daemon:
-paseo run -d --provider "pi-peer/Minnyat/deepseek-v4-flash" --thinking low \
-  --title "routing-smoke" "Reply with exactly: PONG"
-# → inspect cho kết quả khớp:
-paseo inspect <agent-id> --json
-#   Provider=pi-peer | Model=Minnyat/deepseek-v4-flash | Thinking=low
-
-# Đối chứng âm tính (model không tồn tại → error, KHÔNG silent fallback):
-paseo run -d --provider "pi-peer/Minnyat/no-such-model" --thinking low "..."
-paseo inspect <agent-id> --json   # → Status: error, Model vẫn hiển thị giá trị sai
-
-# Direct pi CLI smoke test (kiểm pi inventory độc lập với Paseo):
-pi --provider Minnyat --model deepseek-v4-flash --thinking low -p "Reply with exactly: PONG"
-
-# Remote daemon (bootstrap remote — endpoint từ env, không ghi vào file):
-paseo run --host "$PASEO_HOST_B" --provider "pi-peer/<pi-provider>/<model-id>" \
-  --thinking high -d "<prompt>"
-```
-
-Supervisor/Lead bootstrap với exact model dùng đúng chuỗi trên với profile
-`pi-supervisor` / `pi-lead` và `MODEL_CLASS` tương ứng
-(`MONITOR_ECONOMY` cho supervisor normal observation, `REASONING_HIGH` cho
-Lead orchestration — Workspace Protocol có thể nới xuống cho task routing
-nhỏ). Lead model và Peer model không cần giống nhau; writer và reviewer ưu
-tiên session + model resolution độc lập.
-
-## Resolver + preflight
-
-```bash
-node tai-lieu-tham-khao/scripts/model-routing.mjs validate                 # schema của route local
-node tai-lieu-tham-khao/scripts/model-routing.mjs resolve --class CODING_MEDIUM --json
-node tai-lieu-tham-khao/scripts/preflight.mjs [--json] [--skip-models]     # full host check
-```
-
-Mã lỗi fail-closed (không bao giờ fallback):
-
-```text
-CONFIG_INVALID                 route file lỗi schema/đọc được nhưng sai
-ROLE_PROVIDER_UNAVAILABLE      role profile thiếu/vô hiệu trên daemon
-MODEL_UNAVAILABLE              exact model không có trong list_models
-THINKING_OPTION_UNAVAILABLE    thinking level model không offer
-MODEL_RESOLUTION_MISMATCH      observed ≠ requested (hoặc runtimeInfo thiếu)
-HOST_ROUTE_UNAVAILABLE         class không có route trên host này
-```
-
-## Ranh giới secret
-
-- Không commit: `model-routing.local.json`, `hosts.local.json`,
-  `~/.pi/agent/{auth.json,models.json}`, `~/.paseo/config.json`, pairing URL,
-  mọi endpoint có credential.
-- `hosts.local.json` chỉ tham chiếu endpoint qua **tên env var**
-  (`endpointEnv`); giá trị tcp://...?password=... nằm trong environment.
-- Preflight chỉ báo env var có tồn tại hay không, không in giá trị.
+The Lead owns observed routing evidence. Workers only echo `ASSIGNED_*` fields
+and report mismatch; they do not select or mutate their runtime route.

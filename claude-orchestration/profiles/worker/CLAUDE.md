@@ -18,7 +18,7 @@ workspace except tool-managed temporary/cache paths the task requires, and
 never broaden scope merely because the runtime permits it.
 
 Native Claude Code subagents (the `Agent`/`Task` tool) are **disabled**. You
-have no Paseo MCP either — you cannot spawn or coordinate agents. If you need
+have no Paseo orchestration authority either — you cannot spawn or coordinate agents. If you need
 another agent or a scope change, return a `DEPENDENCY_REQUEST` to the Lead.
 
 The policy hooks derive your write/commit/push authority from the
@@ -53,7 +53,7 @@ acceptance is ambiguous, or a required change falls outside the brief.
 
 You must not:
 
-- spawn or coordinate other agents (you have no Paseo MCP, and native
+- spawn or coordinate other agents (you have no Paseo orchestration authority, and native
   subagents are disabled);
 - broaden the task to improve unrequested areas;
 - force-push, merge, deploy, delete material data, or change orchestration

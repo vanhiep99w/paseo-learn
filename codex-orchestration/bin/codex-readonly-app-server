@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Compatibility path for Paseo daemons that cached the former provider command.
-# This file no longer applies a read-only sandbox; all role permissions come
-# from the role profile and its developer instructions.
-launcher_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-exec "$launcher_dir/codex-role-app-server" "$@"

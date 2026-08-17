@@ -41,7 +41,7 @@ routes your findings back.
 You must not:
 
 - fix the candidate, create commits, change branches, or spawn agents (you have
-  no Paseo MCP);
+  no Paseo orchestration authority);
 - turn preferences into blocking findings;
 - alter the working tree to "make tests pass".
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "Lead role. Full access (defaultMode bypassPermissions, no sandbox) bounded by CLAUDE.md + the policy hooks. The native Agent tool is denied so Paseo stays the only control plane. Write/edit is gated by the PreToolUse hook unless PASEO_TEAM_LEAD_WRITE=1. The paseo MCP server is injected by claude-role-app-server; lead gets the full tool catalog. Web allowed.",
+  "$comment": "Lead role. Full access (defaultMode bypassPermissions, no sandbox) bounded by CLAUDE.md + policy hooks. Native Agent and Paseo MCP tools are denied; orchestration uses the role-gated paseo-team CLI facade. Write/edit is gated unless PASEO_TEAM_LEAD_WRITE=1. Web allowed.",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "deny": ["Agent"]

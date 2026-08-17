@@ -1,5 +1,5 @@
 {
-  "$comment": "Worker role. Full access bounded by CLAUDE.md + policy hooks. No paseo MCP. Write/edit/commit/push authority is derived from the CURRENT-turn V3 brief; malformed hook state blocks the turn. Shell is disabled on read-only turns, and direct file mutations are confined to OWNED_SCOPE. Native Agent/Task tools + web denied.",
+  "$comment": "Worker role. Full access bounded by CLAUDE.md + policy hooks. No orchestration CLI authority. Write/edit/commit/push authority is derived from the CURRENT-turn V3 brief; malformed hook state blocks the turn. Shell is disabled on read-only turns, and direct file mutations are confined to OWNED_SCOPE. Native Agent/Task tools + web denied.",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "deny": ["Agent", "WebSearch", "WebFetch"]

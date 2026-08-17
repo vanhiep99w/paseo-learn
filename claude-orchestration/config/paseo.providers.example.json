@@ -3,7 +3,6 @@
   "version": 1,
   "daemon": {
     "mcp": {
-      "enabled": true,
       "injectIntoAgents": false
     }
   },
@@ -12,43 +11,45 @@
       "claude-lead": {
         "extends": "claude",
         "label": "Claude Lead",
-        "description": "Orchestration owner. Gets the full Paseo MCP catalog via the launcher; bounded by CLAUDE.md and the policy hooks.",
-        "command": ["__PASEO_HOME__/bin/claude-role-app-server"],
+        "description": "Orchestration owner using the role-gated Paseo CLI facade.",
+        "command": ["claude"],
         "env": {
           "CLAUDE_CONFIG_DIR": "__CLAUDE_ROLES_HOME__/lead",
           "PASEO_CLAUDE_ROLE": "lead",
-          "PASEO_MCP_ACCESS": "lead"
+          "PASEO_TEAM_CLI": "__PASEO_HOME__/bin/paseo-team"
         }
       },
       "claude-worker": {
         "extends": "claude",
         "label": "Claude Worker",
-        "description": "Bounded implementation agent. No Paseo MCP; write/commit/push authority comes only from the current-turn Task Brief.",
+        "description": "Bounded implementation agent with no orchestration authority.",
         "command": ["claude"],
         "env": {
           "CLAUDE_CONFIG_DIR": "__CLAUDE_ROLES_HOME__/worker",
-          "PASEO_CLAUDE_ROLE": "worker"
+          "PASEO_CLAUDE_ROLE": "worker",
+          "PASEO_TEAM_CLI": "__PASEO_HOME__/bin/paseo-team"
         }
       },
       "claude-reviewer": {
         "extends": "claude",
         "label": "Claude Reviewer",
-        "description": "Independent review. No Paseo MCP; behaviorally read-only on an exact candidate SHA or the current working diff.",
+        "description": "Independent behaviorally read-only reviewer with no orchestration authority.",
         "command": ["claude"],
         "env": {
           "CLAUDE_CONFIG_DIR": "__CLAUDE_ROLES_HOME__/reviewer",
-          "PASEO_CLAUDE_ROLE": "reviewer"
+          "PASEO_CLAUDE_ROLE": "reviewer",
+          "PASEO_TEAM_CLI": "__PASEO_HOME__/bin/paseo-team"
         }
       },
       "claude-supervisor": {
         "extends": "claude",
         "label": "Claude Supervisor",
-        "description": "Governance observer. Gets a read-only allowlist of Paseo MCP tools; instruction-gated recovery only.",
-        "command": ["__PASEO_HOME__/bin/claude-role-app-server"],
+        "description": "Governance observer using the role-gated CLI monitoring/recovery surface.",
+        "command": ["claude"],
         "env": {
           "CLAUDE_CONFIG_DIR": "__CLAUDE_ROLES_HOME__/supervisor",
           "PASEO_CLAUDE_ROLE": "supervisor",
-          "PASEO_MCP_ACCESS": "supervisor"
+          "PASEO_TEAM_CLI": "__PASEO_HOME__/bin/paseo-team"
         }
       }
     }

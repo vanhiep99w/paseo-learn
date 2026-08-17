@@ -31,22 +31,22 @@ contract, not a machine-enforced language detector.
 ## Paseo is the only control plane
 
 There is no private task database, candidate ledger, or integration engine. An
-agent that needs to delegate uses the **Paseo MCP**, reached (for Pi) through the
-`mcp` proxy tool from `pi-mcp-adapter`:
+agent that needs to delegate uses the installed **`paseo-team` CLI facade**. The
+facade shells out to the public `paseo` CLI; it does not call MCP or the daemon
+API directly. Paseo recognizes the caller through `PASEO_AGENT_ID`, so CLI-created
+agents preserve parentage and current-workspace defaults.
 
+```bash
+$PASEO_TEAM_CLI providers
+$PASEO_TEAM_CLI models pi-worker
+$PASEO_TEAM_CLI run --provider pi-worker/openai-codex/model --thinking high -- '<V3 brief>'
+$PASEO_TEAM_CLI inspect <agent-id>
+$PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
 ```
-mcp({ "connect": "paseo" })                 // connect the server
-mcp({ "search": "create_agent" })           // discover exact tool name
-mcp({ "tool": "create_agent", "args": {} }) // invoke
-```
 
-For Codex, the same tools are exposed directly because Paseo injects the MCP
-server into the agent. Delegation always goes through
-`create_agent` / `send_agent_prompt` with `notifyOnFinish=true`; an agent must
-never substitute shell commands like `paseo run`/`paseo send`/`paseo wait`.
-
-Work appears in the Paseo **Subagents track**; cross-workspace subagents stay
-under their parent's track.
+Raw `paseo`, MCP, provider-native subagents, direct daemon API calls, and private
+task databases are forbidden orchestration paths. Work still appears in Paseo's
+Subagents track; cross-workspace children remain under their parent.
 
 ## Capability is not authority
 
@@ -113,7 +113,7 @@ Read-only Pi Workers/Reviewers have no Bash; read-only Claude Workers have shell
 calls hook-blocked, while Claude Reviewers run in plan mode. Bash on an authorized
 write turn is still a behavioral boundary, not filesystem isolation.
 
-A follow-up `send_agent_prompt` that needs authority must **repeat the full
+A follow-up through `$PASEO_TEAM_CLI send` that needs authority must **repeat the full
 brief**; a plain correction message silently downgrades the Worker to read-only
 for that turn, by design.
 
@@ -130,93 +130,65 @@ possibly different hosts:
 - Cross-host review requires the Engineer brief to grant both `COMMIT` and
   `PUSH_TASK_BRANCH` authority (see `docs/multi-host.md`).
 
-## Selective MCP injection
+## Role-gated CLI facade
 
-All packs disable daemon-wide MCP auto-injection and expose the Paseo MCP only
-to Lead and Supervisor:
+Every active pack ships the same executable source at `<pack>/bin/paseo-team`;
+installers place it at `$PASEO_HOME/bin/paseo-team` and set
+`PASEO_TEAM_CLI` in every role provider. The wrapper requires
+`PASEO_AGENT_ID` and exactly one role environment.
 
-```jsonc
-"daemon": { "mcp": { "enabled": true, "injectIntoAgents": false } }
-```
+- **Lead:** provider/model discovery, workspace lifecycle, spawn, inspect, logs,
+  follow-up, wait, and archive. `run` requires an exact provider/model route and
+  explicit thinking option.
+- **Supervisor:** observation and Lead messaging, plus one recovery-gated
+  successor-Lead `run`. Workspace overrides and non-Lead providers are rejected.
+- **Worker/Reviewer:** every wrapper command is rejected.
 
-- The provider `command` for Lead/Supervisor is a **launcher** that derives the
-  agent-scoped URL from `PASEO_AGENT_ID`:
-  `http://127.0.0.1:6767/mcp/agents?callerAgentId=<id>`.
-- Worker/Reviewer use the plain CLI and have **no** Paseo MCP entry, so they
-  cannot orchestrate.
-- The Supervisor's Paseo MCP is further filtered: Codex via `enabled_tools` on
-  the MCP server (`codex-orchestration/bin/codex-role-app-server`); Pi via
-  `includeTools` in `pi-orchestration/profiles/supervisor/mcp.json`; Claude via
-  a `PreToolUse` hook on `mcp__paseo__*` in
-  `claude-orchestration/shared/paseo-team-policy/policy.mjs` (Claude Code's MCP
-  config has no per-tool field, so the allowlist is hook-enforced).
+The Pi extension and Claude/Codex hooks additionally block raw `paseo`, all MCP
+paths, and wrapper use by Worker/Reviewer. Supervisor shell access is restricted
+to one simple wrapper invocation without shell control operators. This remains a
+behavioral/capability-exposure boundary, not an OS security sandbox.
 
-Known limitation: this is a capability-exposure boundary, not a server-side ACL.
-`PASEO_AGENT_ID` is assumed to be exported to custom providers by Paseo (as it is
-for Codex); if a Paseo build does not export it, the launcher leaves the URL unset
-and the role's MCP fails closed rather than impersonating another agent.
+Daemon-wide MCP injection remains disabled so project or host configuration does
+not accidentally expose a second orchestration path. The installers do not need
+MCP enabled and do not install role MCP configuration.
 
-## No silent fallback (Agent Profiles + model routing)
+## No silent fallback (CLI routing)
 
-Paseo v0.4.0+ Agent Profiles are optional, host-wide route candidates configured
-by the Human. They may pin provider/model/mode/thinking/features because they
-live with one daemon's catalog, but they are neither runtime evidence nor role
-authority. Profile `notes` are advisory. Pi/Claude installers merge four
-namespaced, host-default profiles into `daemon.agentProfiles`, preserving every
-Human-owned entry and failing on managed-profile drift unless `--force`. Codex
-profiles remain Human-managed. Same-family routing is mandatory by default:
-Pi Lead selects `pi-*`, Claude Lead selects `claude-*`, and Codex Lead selects
-`codex-*`. Cross-family routing requires an explicit Human request for that
-provider family; an unavailable same-family role blocks rather than silently
-switching families. See [../docs/agent-profiles.md](../docs/agent-profiles.md).
+Paseo Agent Profiles remain optional Human launch presets. The public CLI does
+not expose profiles as an orchestration input, so Leads never infer or copy a
+route from them. Installers may still merge namespaced host-default profiles for
+the app's Human launch experience; those profiles grant no role authority.
 
-The mandatory cycle (see the Lead skill,
-`pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md`):
+The mandatory CLI cycle is:
 
-1. Choose role/MODEL_CLASS; call `list_profiles` when available and record a
-   complete role-matching candidate or the reason none was selected.
-2. `list_providers` → role provider exists and is healthy.
-3. `list_models` → exact model and thinking option exist. If a profile names
-   mode/features, `inspect_provider` validates those fields. Reject stale
-   profiles without silently stripping or substituting values.
-4. `create_agent` with provider string `<profile.provider>/<profile.model>` (or
-   the equivalently validated host-local route), copying profile `modeId`,
-   `thinkingOptionId`, and `featureValues` into `settings`. Paseo has no
-   `profile` parameter and splits the provider string at the **first** slash, so
-   multi-segment model IDs work.
-5. `get_agent_status` → compare requested model/thinking/mode/features against
-   runtime state. Mismatch or missing evidence →
-   `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrongly-resolved agent.
+1. Choose role/MODEL_CLASS under same-family routing. Cross-family routing needs
+   the Human's explicit request.
+2. `$PASEO_TEAM_CLI providers` verifies the exact role provider is healthy.
+3. `$PASEO_TEAM_CLI models <role-provider>` verifies the exact model and thinking
+   option.
+4. `$PASEO_TEAM_CLI run` pins `<role-provider>/<provider>/<model-id>`,
+   `--thinking`, optional `--mode`, labels, and workspace placement. Omitting the
+   model or thinking option is rejected by the wrapper.
+5. `$PASEO_TEAM_CLI inspect <agent-id>` verifies observed Provider, Model,
+   Thinking, and Mode. Missing or mismatched evidence is
+   `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrong agent.
 
-The Lead owns **observed** routing evidence; Workers only echo the `ASSIGNED_*`
-fields and escalate `MODEL_MISMATCH` if they detect a discrepancy — they never
-report invented `OBSERVED_*` values and never change their own model. For its own
-runtime identity, a write-mode Pi agent can inspect the bash-tool env
-`PI_PROVIDER` / `PI_MODEL` / `PI_REASONING_LEVEL`; read-only turns report that
-runtime verification was unavailable rather than guessing.
+The Lead owns observed routing evidence. Workers echo `ASSIGNED_*` fields and
+report mismatch; they never invent `OBSERVED_*` values or change their model.
+There is no silent repair, daemon-default inheritance, or cross-family fallback.
 
-Three silent-fallback traps this design guards against (documented in
-`docs/model-routing.md`): Paseo silently clamping an invalid thinking level to
-`medium`; `list_models` advertising all thinking levels regardless of support;
-and `--model` being a pattern match.
+## Why three enforcement mechanisms
 
-## Why three mechanisms for the same model
+The orchestration transport is now identical across packs (`paseo-team` → public
+Paseo CLI), but each provider still exposes policy enforcement differently:
 
-Codex, Pi, and Claude Code expose configuration differently, which is why the
-packs are not identical:
+- **Codex:** per-role `CODEX_HOME`, developer instructions, and
+  `PreToolUse`/`UserPromptSubmit` hooks.
+- **Pi:** per-role `PI_CODING_AGENT_DIR`, `AGENTS.md`, and an in-process
+  extension using `setActiveTools()` plus a `tool_call` backstop.
+- **Claude Code:** per-role `CLAUDE_CONFIG_DIR`, `CLAUDE.md`, permissions, and
+  `PreToolUse`/`UserPromptSubmit` hooks.
 
-- Codex has native MCP config and a `config.toml` per `CODEX_HOME`; the role
-  prompt lives in `developer_instructions` and there is **no enforcement
-  extension** — behavior is instruction + `enabled_tools` only.
-- Pi has **no native MCP** (it needs the `pi-mcp-adapter` package) and no
-  sandbox; the role prompt lives in `AGENTS.md` (a context file under
-  `PI_CODING_AGENT_DIR`), and Pi's strength is the **extension** that hard-enforces
-  tool allowlists via `setActiveTools()` plus a `tool_call` backstop.
-- Claude Code has native MCP, no sandbox, and a `CLAUDE.md` system prompt per
-  `CLAUDE_CONFIG_DIR`; the launcher injects the agent-scoped MCP via
-  `--mcp-config`, and its strength is **hooks** (`PreToolUse` /
-  `UserPromptSubmit`) that hard-enforce the same policy as the Pi extension
-  (without the in-process `setActiveTools()` tool introspection).
-
-The [per-pack pages](packs/codex-orchestration.md) map each concept to the exact
-files and symbols that implement it.
+All three block native subagents and MCP, gate raw Paseo CLI, preserve V3 Task
+Brief authority, and expose orchestration only through the same wrapper contract.

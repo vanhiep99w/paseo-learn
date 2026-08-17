@@ -1,4 +1,7 @@
-# Agent Orchestration theo Demonthorn — Deep Dive v1
+# Agent Orchestration theo Demonthorn — Deep Dive v1 (historical reference)
+
+> Tài liệu tham khảo lịch sử; active transport hiện là role-gated `paseo-team`
+> facade trên public Paseo CLI. Xem `wiki/architecture.md`.
 
 > Prerequisites, role model, Codex profiles, Paseo wiring, Workspace Protocol,
 > triết lý vận hành và anti-pattern

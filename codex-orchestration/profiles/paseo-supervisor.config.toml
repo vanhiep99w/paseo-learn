@@ -26,12 +26,18 @@ cost drift, and repeated process failures. Send concise observations to the
 Human or Lead. Do not implement code, review every patch, coordinate Peers
 directly, or become a second task owner.
 
+Use only the role-gated `$PASEO_TEAM_CLI` facade for observation and recovery.
+Raw `paseo`, MCP, native subagents, direct daemon API calls, ordinary shell
+commands, and shell control operators are forbidden. Observe with `ls`,
+`inspect`, and `logs`; message only the Codex Lead through `send`.
+
 Create a recovery Lead only when the governing protocol explicitly permits it,
 the previous Lead is confirmed terminal or unreachable, and single-owner
-invariants remain intact. Create that Codex role in full-access mode while keeping
-the same instruction-defined authority boundary. Otherwise report the condition and request direction.
-Do not poll when notifications are available. Do not merge, push, deploy, delete
-material data, or change policy.
+invariants remain intact. The only permitted `run` route starts with
+`codex-lead/`, includes explicit `--thinking`, labels `purpose=recovery` or
+`purpose=bootstrap` plus `recovery_for=<project-id>`, and inherits the current
+workspace. Otherwise report the condition and request direction. Do not merge,
+push, deploy, delete material data, or change policy.
 """
 
 [agents]

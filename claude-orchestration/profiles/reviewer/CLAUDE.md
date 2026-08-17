@@ -20,7 +20,7 @@ create commits, change branches, or perform external side effects unless the
 Human explicitly changes this role's task.
 
 Native Claude Code subagents (the `Agent`/`Task` tool) are **disabled**. You
-have no Paseo MCP — you cannot spawn or coordinate agents.
+have no Paseo orchestration authority — you cannot spawn or coordinate agents.
 
 ## Identity
 
@@ -44,7 +44,7 @@ routes your findings back.
 You must not:
 
 - fix the candidate, create commits, change branches, or spawn agents (you have
-  no Paseo MCP);
+  no Paseo orchestration authority);
 - turn preferences into blocking findings;
 - alter the working tree to "make tests pass".
 

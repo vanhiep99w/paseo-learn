@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+	existsSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -16,9 +17,10 @@ import {
 } from "../claude-orchestration/shared/paseo-team-policy/brief.mjs";
 import {
 	blockReasonForTool,
-	LEAD_ALLOWED_MCP_TARGETS,
+	callsPaseoCli,
+	callsPaseoTeamCli,
 	ownedScopeBlockReason,
-	SUPERVISOR_ALLOWED_MCP_TARGETS,
+	safeSupervisorCliCommand,
 } from "../claude-orchestration/shared/paseo-team-policy/policy.mjs";
 
 const repo = path.resolve(import.meta.dirname, "..");
@@ -88,49 +90,37 @@ assert.equal(
 	null,
 );
 
-// Profile discovery belongs to Lead only; Supervisor remains on the minimal
-// five-tool monitoring/recovery contract across all hard-policy packs.
-assert.ok(LEAD_ALLOWED_MCP_TARGETS.includes("list_profiles"));
+// Active orchestration is CLI-only. Injected MCP fails closed, raw shell is
+// blocked, and Supervisor shell access is limited to a simple facade call.
+assert.match(
+	blockReasonForTool("lead", null, "mcp__paseo__list_agents", {}, repo),
+	/CLI-only/,
+);
+assert.match(
+	blockReasonForTool("supervisor", null, "mcp__paseo__list_agents", {}, repo),
+	/CLI-only/,
+);
+assert.equal(callsPaseoCli("$PASEO_CLI run task"), true);
+assert.equal(callsPaseoCli("\"$PASEO_CLI\" run task"), true);
+assert.equal(callsPaseoTeamCli("$PASEO_TEAM_CLI inspect abc"), true);
+assert.equal(callsPaseoTeamCli("\"$PASEO_TEAM_CLI\" inspect abc"), true);
+assert.equal(safeSupervisorCliCommand("$PASEO_TEAM_CLI inspect abc"), true);
+assert.equal(safeSupervisorCliCommand("$PASEO_TEAM_CLI inspect abc; rm -rf x"), false);
 assert.equal(
-	blockReasonForTool("lead", null, "mcp__paseo__list_profiles", {}, repo),
+	blockReasonForTool("supervisor", null, "Bash", { command: "$PASEO_TEAM_CLI inspect abc" }, repo),
 	null,
+);
+assert.match(
+	blockReasonForTool("supervisor", null, "Bash", { command: "git status" }, repo),
+	/restricted/,
 );
 const piPolicySource = readFileSync(
 	path.join(repo, "pi-orchestration", "shared", "paseo-team-policy.ts"),
 	"utf8",
 );
-assert.match(piPolicySource, /discovery:\s*\["list_profiles",/);
-assert.deepEqual(SUPERVISOR_ALLOWED_MCP_TARGETS, [
-	"list_agents",
-	"get_agent_status",
-	"get_agent_activity",
-	"send_agent_prompt",
-	"create_agent",
-]);
-const piSupervisor = JSON.parse(readFileSync(
-	path.join(repo, "pi-orchestration", "profiles", "supervisor", "mcp.json"),
-	"utf8",
-));
-assert.deepEqual(
-	new Set(piSupervisor.mcpServers.paseo.includeTools),
-	new Set(SUPERVISOR_ALLOWED_MCP_TARGETS),
-);
-const codexLauncher = readFileSync(
-	path.join(repo, "codex-orchestration", "bin", "codex-role-app-server"),
-	"utf8",
-);
-for (const tool of SUPERVISOR_ALLOWED_MCP_TARGETS) assert.match(codexLauncher, new RegExp(`"${tool}"`));
-for (const extra of [
-	"speak",
-	"list_workspaces",
-	"list_profiles",
-	"list_providers",
-	"list_models",
-	"inspect_provider",
-	"list_pending_permissions",
-]) {
-	assert.doesNotMatch(codexLauncher, new RegExp(`"${extra}"`));
-}
+assert.match(piPolicySource, /allow: \["read", "bash"\]/);
+assert.equal(existsSync(path.join(repo, "pi-orchestration", "profiles", "lead", "mcp.json")), false);
+assert.equal(existsSync(path.join(repo, "pi-orchestration", "profiles", "supervisor", "mcp.json")), false);
 
 // UserPromptSubmit must replace authority each turn and block malformed state events.
 const stateTmp = mkdtempSync(path.join(tmpdir(), "paseo-state-"));
@@ -219,6 +209,11 @@ const installedConfig = JSON.parse(
 	readFileSync(path.join(installPaseoHome, "config.json"), "utf8"),
 );
 assert.equal(installedConfig.daemon.agentProfiles[0].id, "human:keep");
+assert.equal(installedConfig.daemon.mcp.enabled, undefined);
+assert.equal(installedConfig.daemon.mcp.injectIntoAgents, false);
+assert.equal(installedConfig.agents.providers["pi-lead"].command[0], "pi");
+assert.match(installedConfig.agents.providers["pi-lead"].env.PASEO_TEAM_CLI, /paseo-team$/);
+assert.ok(existsSync(path.join(installPaseoHome, "bin", "paseo-team")));
 const piManagedProfiles = installedConfig.daemon.agentProfiles.filter((profile) =>
 	profile.id.startsWith("paseo-learn:pi:"),
 );

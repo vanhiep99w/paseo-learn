@@ -83,7 +83,7 @@ TASK_BODY_END
 - When granted, push authority is BRANCH-SCOPED: the only permitted bash form
   is `git push -u origin HEAD:refs/heads/agent/<TASK_ID>` (task branch must be
   named `agent/<TASK_ID>`). Force-push in any spelling is always blocked.
-- Every follow-up `send_agent_prompt` that needs authority must repeat the full
+- Every follow-up through `$PASEO_TEAM_CLI send` that needs authority must repeat the full
   brief. A plain correction message without the markers downgrades the worker
   to read-only for that turn.
 - The Reviewer always runs `MODE: read-only`; it ignores write/authority

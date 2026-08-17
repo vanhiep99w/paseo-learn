@@ -6,14 +6,12 @@
  * Code's tool model:
  *   - Role is read from PASEO_CODEX_ROLE (the Codex pack's equivalent of
  *     PASEO_PI_ROLE).
- *   - Codex has NO `mcp` proxy tool and NO `mcp_script`. Paseo tools are
- *     exposed directly as `mcp__paseo__<tool>` (native MCP). So the pi proxy
- *     classification (classifyMcpInput) is replaced by direct tool-name matching.
+ *   - Paseo orchestration is CLI-only through the installed, role-gated
+ *     `paseo-team` facade. Any injected `mcp__paseo__*` tool is denied.
  *   - Git/Paseo-CLI guards apply to the Bash/PowerShell `command` field, same
  *     regexes as the Pi extension.
- *   - The supervisor create_agent gate requires a `codex-lead/<...>/<...>`
- *     successor (not pi-lead) and reads the tool args directly (Codex
- *     passes create_agent params as the tool input, not wrapped in {args}).
+ *   - Supervisor shell calls are restricted to a simple role-gated facade
+ *     invocation; the facade validates successor-Lead recovery arguments.
  *
  * Fail-closed: any tool this module cannot place on a role's allow surface is
  * denied with a reason. When PASEO_CODEX_ROLE is unset the hook stays passive.
@@ -50,71 +48,31 @@ export function leadWriteEnabled() {
 }
 
 // ---------------------------------------------------------------------------
-// Paseo MCP tool policy tables (provider-agnostic — these are Paseo tool names)
-// ---------------------------------------------------------------------------
-
-export const PASEO_TOOLS = {
-	discovery: ["list_profiles", "list_providers", "list_models", "inspect_provider"],
-	workspace: ["create_workspace", "list_workspaces", "archive_workspace"],
-	monitoring: ["list_agents", "get_agent_status", "get_agent_activity"],
-	orchestration: [
-		"create_agent",
-		"send_agent_prompt",
-		"update_agent",
-		"cancel_agent",
-		"archive_agent",
-	],
-	permissions: ["list_pending_permissions", "respond_to_permission"],
-};
-
-export const ALL_PASEO_TOOLS = [
-	...PASEO_TOOLS.discovery,
-	...PASEO_TOOLS.workspace,
-	...PASEO_TOOLS.monitoring,
-	...PASEO_TOOLS.orchestration,
-];
-
-export const LEAD_ALLOWED_MCP_TARGETS = [
-	...PASEO_TOOLS.discovery,
-	...PASEO_TOOLS.workspace,
-	...PASEO_TOOLS.monitoring,
-	...PASEO_TOOLS.orchestration,
-	...PASEO_TOOLS.permissions,
-];
-
-// The five-tool monitoring + recovery-gated allowlist. Mirrors the Codex
-// launcher and Pi supervisor mcp.json verbatim.
-const SUPERVISOR_MONITORING_TARGETS = [
-	"list_agents",
-	"get_agent_status",
-	"get_agent_activity",
-	"send_agent_prompt",
-];
-export const SUPERVISOR_ALLOWED_MCP_TARGETS = [
-	...SUPERVISOR_MONITORING_TARGETS,
-	"create_agent",
-];
-
-/**
- * @param {string} name
- * @param {string[]} known
- * @returns {boolean}
- */
-export function matchesPaseoToolName(name, known) {
-	return known.includes(name);
-}
-
-// ---------------------------------------------------------------------------
-// Bash CLI guard — workers/reviewers must not drive Paseo from the shell to
-// bypass the tool policy. Heuristic only; not an authorization boundary.
+// Bash CLI guard — raw Paseo is denied; Lead/Supervisor use the role-gated
+// facade. Heuristic only; not an OS-level authorization boundary.
 // ---------------------------------------------------------------------------
 
 const PASEO_CLI_RE =
 	/\b(paseo|paseo-pi|paseo-claude|pio)(?:\.(?:cmd|exe|ps1|sh))?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
+const PASEO_CLI_ENV_RE =
+	/["\']?\$\{?PASEO_CLI\}?["\']?\s+(?:run|send|ls|agent|workspace|provider|schedule|heartbeat|daemon|status|attach|logs|stop|delete|archive|inspect|wait|import|clone|onboard|start|restart|hub|chat|terminal|script|loop|permit|speech|hooks|help)\b/i;
 
 /** @param {string} command @returns {boolean} */
 export function callsPaseoCli(command) {
-	return PASEO_CLI_RE.test(command);
+	return PASEO_CLI_RE.test(command) || PASEO_CLI_ENV_RE.test(command);
+}
+
+const PASEO_TEAM_CLI_RE = /(?:["\']?\$\{?PASEO_TEAM_CLI\}?["\']?|(?:^|[\\/])paseo-team["\']?)\s+/i;
+const SHELL_CONTROL_RE = /(?:\r|\n|&&|\|\||[;|<>`]|\$\()/;
+
+/** @param {string} command @returns {boolean} */
+export function callsPaseoTeamCli(command) {
+	return PASEO_TEAM_CLI_RE.test(command);
+}
+
+/** @param {string} command @returns {boolean} */
+export function safeSupervisorCliCommand(command) {
+	return callsPaseoTeamCli(command) && !SHELL_CONTROL_RE.test(command);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,58 +126,6 @@ export function gitAuthorityBlockReason(command, authority, taskId) {
 	}
 	if (GIT_MERGE_RE.test(command) && !authority.merge) {
 		return "MERGE_AUTHORITY is always denied. Integration belongs to the Lead or Human.";
-	}
-	return null;
-}
-
-// ---------------------------------------------------------------------------
-// Supervisor create_agent arg gate (lead-recovery only)
-// ---------------------------------------------------------------------------
-
-const SUPERVISOR_RECOVERY_PURPOSES = new Set(["recovery", "bootstrap"]);
-
-/**
- * Codex passes create_agent params as the tool input directly. The Pi
- * proxy wrapped them in { args: {...} }; accept both shapes for safety.
- *
- * @param {unknown} input
- * @returns {string | null}
- */
-export function supervisorCreateAgentBlockReason(input) {
-	if (typeof input !== "object" || input === null) {
-		return "Supervisor create_agent requires an args object (provider, labels, settings). Refusing fail-closed.";
-	}
-	const rec = /** @type {Record<string, unknown>} */ (input);
-	// Accept both { args: {...} } (proxy shape) and a direct params object.
-	const args =
-		(rec.args !== undefined && /** @type {any} */ (rec).args) || rec;
-	if (typeof args !== "object" || args === null) {
-		return "Supervisor create_agent requires an args object (provider, labels, settings). Refusing fail-closed.";
-	}
-	const a = /** @type {Record<string, unknown>} */ (args);
-	const provider = typeof a.provider === "string" ? a.provider : "";
-	if (!/^codex-lead\/[^/]+\/[^/]+/.test(provider)) {
-		return `Supervisor create_agent is lead-recovery only: provider must be "codex-lead/<provider>/<model-id>" (got "${provider || "<missing>"}"). Workers/Reviewers and other providers are created by the Lead, never by the Supervisor.`;
-	}
-	const labels = a.labels;
-	if (typeof labels !== "object" || labels === null) {
-		return "Supervisor create_agent requires labels to prove this is a gated recovery action.";
-	}
-	const labelMap = /** @type {Record<string, unknown>} */ (labels);
-	const purpose = labelMap.purpose;
-	if (typeof purpose !== "string" || !SUPERVISOR_RECOVERY_PURPOSES.has(purpose)) {
-		return `Supervisor create_agent labels.purpose must be "recovery" or "bootstrap" (got "${typeof purpose === "string" ? purpose : "<missing>"}").`;
-	}
-	const recoveryFor = labelMap.recovery_for;
-	if (typeof recoveryFor !== "string" || recoveryFor.trim().length === 0) {
-		return "Supervisor create_agent labels.recovery_for (project id) is required.";
-	}
-	const thinking =
-		typeof a.settings === "object" && a.settings !== null
-			? (/** @type {Record<string, unknown>} */ (a.settings)).thinkingOptionId
-			: undefined;
-	if (typeof thinking !== "string" || thinking.trim().length === 0) {
-		return "Supervisor create_agent requires settings.thinkingOptionId (no daemon-default model — route from the approved Lead route).";
 	}
 	return null;
 }
@@ -298,11 +204,10 @@ export function ownedScopeBlockReason(brief, targetPath, cwd) {
  * @returns {string | null}
  */
 export function blockReasonForTool(role, brief, toolName, toolInput, cwd = process.cwd()) {
-	// Native delegation: disabled for ALL roles. Paseo is the only control plane;
-	// Lead/Supervisor delegate through mcp__paseo__create_agent, never the native
-	// Agent tool.
+	// Native delegation is disabled for every role. Paseo remains the only
+	// control plane, reached through the role-gated CLI facade.
 	if (toolName === "Agent" || toolName === "Task") {
-		return "Native subagents are disabled for every role. Delegate through the Paseo MCP (mcp__paseo__create_agent), available to Lead/Supervisor only; Workers/Reviewers report a DEPENDENCY_REQUEST.";
+		return "Native subagents are disabled for every role. Lead/Supervisor use $PASEO_TEAM_CLI; Workers/Reviewers report a DEPENDENCY_REQUEST.";
 	}
 
 	// Write/edit tools — bounded by role + the current-turn brief.
@@ -329,12 +234,9 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 		}
 	}
 
-	// Shell tools — supervisor observes via MCP only (no shell, mirrors Pi);
-	// worker/reviewer get the git-authority + Paseo-CLI guard.
+	// Shell tools: raw Paseo CLI is always blocked. Lead/Supervisor may use only
+	// the role-gated facade; Worker/Reviewer have no orchestration authority.
 	if (SHELL_TOOLS.has(toolName)) {
-		if (role === "supervisor") {
-			return "Supervisor cannot run shell commands. Observe through the Paseo MCP (list_agents, get_agent_status, get_agent_activity) and Read for inspection.";
-		}
 		if (role === "reviewer") {
 			return "Reviewer is behaviorally read-only and cannot run shell commands. Report findings instead.";
 		}
@@ -345,9 +247,12 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 			typeof (/** @type {any} */ (toolInput)?.command) === "string"
 				? /** @type {any} */ (toolInput).command
 				: "";
+		if (callsPaseoCli(command)) {
+			return `${role} cannot call raw paseo; use the role-gated $PASEO_TEAM_CLI facade when this role has orchestration authority.`;
+		}
 		if (role === "worker" || role === "reviewer") {
-			if (callsPaseoCli(command)) {
-				return `${role} cannot drive the Paseo CLI from a shell (would bypass the tool policy). Report a DEPENDENCY_REQUEST to the Lead instead.`;
+			if (callsPaseoTeamCli(command)) {
+				return `${role} has no orchestration authority. Report a DEPENDENCY_REQUEST to the Lead instead.`;
 			}
 			const authority =
 				role === "reviewer" ? REVIEWER_AUTHORITY : workerGitAuthority(brief);
@@ -356,28 +261,14 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 			const gitBlock = gitAuthorityBlockReason(command, authority, taskId);
 			if (gitBlock) return gitBlock;
 		}
+		if (role === "supervisor" && !safeSupervisorCliCommand(command)) {
+			return "Supervisor shell access is restricted to one simple $PASEO_TEAM_CLI invocation without shell control operators.";
+		}
 	}
 
-	// Paseo MCP tools — mcp__paseo__<target>. Direct tool call (no proxy).
+	// CLI-only invariant: fail closed if a project or daemon injects Paseo MCP.
 	if (toolName.startsWith(PASEO_MCP_PREFIX)) {
-		const target = toolName.slice(PASEO_MCP_PREFIX.length);
-		if (role === "worker" || role === "reviewer") {
-			return `${role} cannot use Paseo orchestration tools (it would expose the control plane). Report a DEPENDENCY_REQUEST to the Lead instead.`;
-		}
-		if (role === "supervisor") {
-			if (!matchesPaseoToolName(target, SUPERVISOR_ALLOWED_MCP_TARGETS)) {
-				return `Supervisor may only call monitoring tools through MCP (list_agents, get_agent_status, get_agent_activity, send_agent_prompt) plus a gated lead-recovery create_agent. "${target}" is blocked — send an observation to the Lead instead.`;
-			}
-			if (matchesPaseoToolName(target, ["create_agent"])) {
-				const argBlock = supervisorCreateAgentBlockReason(toolInput);
-				if (argBlock) return argBlock;
-			}
-		}
-		if (role === "lead") {
-			if (!matchesPaseoToolName(target, LEAD_ALLOWED_MCP_TARGETS)) {
-				return `"${target}" is not in the Lead MCP allowlist.`;
-			}
-		}
+		return `${role} cannot use Paseo MCP; orchestration is CLI-only through $PASEO_TEAM_CLI.`;
 	}
 
 	return null;

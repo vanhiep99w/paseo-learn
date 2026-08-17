@@ -20,19 +20,18 @@ const leadContracts = [
 
 for (const file of leadContracts) {
 	const source = read(file);
-	assert.match(source, /list_profiles/, `${file} must discover Human-managed Agent Profiles`);
-	assert.match(source, /notes[\s\S]{0,120}(advisory|authority)/i, `${file} must bound profile notes`);
-	assert.match(source, /list_providers/, `${file} must still verify provider health`);
-	assert.match(source, /list_models/, `${file} must still verify the exact model`);
-	assert.match(source, /inspect_provider/, `${file} must validate profile mode\/features`);
-	assert.match(source, /get_agent_status/, `${file} must post-verify runtime state`);
+	assert.match(source, /PASEO_TEAM_CLI/, `${file} must use the role-gated CLI facade`);
+	assert.match(source, /Agent Profiles[\s\S]{0,100}Human launch preset/i,
+		`${file} must keep profiles out of CLI routing`);
+	assert.match(source, /providers/, `${file} must verify provider health`);
+	assert.match(source, /models/, `${file} must verify the exact model`);
+	assert.match(source, /inspect/, `${file} must post-verify runtime state`);
 	assert.match(source, /same-family|same family/i, `${file} must default to its own provider family`);
 	assert.match(source, /CROSS_FAMILY_ROUTE_REQUIRES_HUMAN/,
 		`${file} must block unauthorized cross-family routing`);
 	assert.match(source, /Human[\s\S]{0,40}explicitly[\s\S]{0,20}request/i,
 		`${file} must require explicit Human authorization for cross-family routing`);
-	assert.match(source, /no [`"]?profile[`"]? parameter|There is no profile parameter/i,
-		`${file} must copy profile fields instead of inventing a create_agent profile parameter`);
+	assert.match(source, /--thinking/, `${file} must pin thinking instead of inheriting defaults`);
 }
 
 const piLeadSkill = read("pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md");
@@ -48,19 +47,20 @@ for (const file of [
 	"claude-orchestration/install.mjs",
 ]) {
 	const source = read(file);
-	assert.match(source, /When list_profiles is available/, `${file} must install profile-aware preferences`);
+	assert.match(source, /PASEO_TEAM_CLI/, `${file} must install the CLI facade path`);
 	assert.match(source, /Same-family routing is mandatory by default/,
 		`${file} must install same-family routing preferences`);
-	assert.match(source, /Never silently repair a stale profile/, `${file} must preserve no-silent-fallback`);
+	assert.match(source, /Never silently fall back/, `${file} must preserve no-silent-fallback`);
+	assert.doesNotMatch(source, /PASEO_MCP_ACCESS/, `${file} must not inject role MCP`);
 }
 
 const guide = read("docs/agent-profiles.md");
 assert.match(guide, /whole-list\s+replacement/);
 assert.match(guide, /giữ nguyên thứ tự và nội dung mọi profile/);
 assert.match(guide, /fail closed nếu managed profile đã bị sửa/);
-assert.match(guide, /PROFILE_DECISION/);
+assert.match(guide, /Human launch/i);
 assert.match(guide, /CROSS_FAMILY_ROUTE_REQUIRES_HUMAN/);
-assert.match(guide, /settings\.features = profile\.featureValues/);
+assert.match(guide, /paseo-team inspect/);
 
 // Claude installer merges four namespaced profiles, preserves Human profiles,
 // and refuses to replace a changed managed route without --force.
@@ -111,6 +111,10 @@ assert.equal(
 );
 let installedConfig = JSON.parse(readFileSync(path.join(paseoHome, "config.json"), "utf8"));
 assert.equal(installedConfig.daemon.agentProfiles[0].id, "human:keep");
+assert.equal(installedConfig.daemon.mcp.enabled, undefined);
+assert.equal(installedConfig.daemon.mcp.injectIntoAgents, false);
+assert.equal(installedConfig.agents.providers["claude-lead"].command[0], "claude");
+assert.match(installedConfig.agents.providers["claude-lead"].env.PASEO_TEAM_CLI, /paseo-team$/);
 let managed = installedConfig.daemon.agentProfiles.filter((profile) =>
 	profile.id.startsWith("paseo-learn:claude:"),
 );

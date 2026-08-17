@@ -1,122 +1,54 @@
 # Pack: codex-orchestration (Codex CLI)
 
-The Codex role pack runs OpenAI's Codex CLI as a four-role team under Paseo. It
-is committed at `codex-orchestration/`. Shared concepts live in
-[../architecture.md](../architecture.md); this page covers what is specific to
-Codex. A Codex role profile/custom provider defines behavior and policy; it is
-not a Paseo **Agent Profile**, which is only a host-local runtime-settings
-preset.
+The Codex pack runs four governed roles under Paseo with per-role `CODEX_HOME`
+directories. Shared concepts are in
+[../architecture.md](../architecture.md).
 
-## How role separation works
+## Role resources
 
-Each role gets its own **`CODEX_HOME`** directory (`~/.codex-paseo/<role>/`)
-holding a `config.toml`. Paseo's custom provider sets `CODEX_HOME` to that
-directory and launches Codex, so each role loads its own model, sandbox, and
-`developer_instructions` while sharing one `auth.json` (symlinked back to
-`~/.codex/auth.json`).
+Each role home contains `config.toml`, `hooks.json`, policy hook scripts, and a
+shared auth symlink. Profiles use `danger-full-access`; authority comes from
+instructions and hooks rather than a sandbox.
 
-The four Codex role profiles are the source of role behavior:
+| Role | Effective capability | Orchestration |
+|---|---|---|
+| Lead | full runtime; product writes disabled by default | role-gated `$PASEO_TEAM_CLI` |
+| Worker | current-turn V3 authority + `OWNED_SCOPE` | denied |
+| Reviewer | behaviorally read-only | denied |
+| Supervisor | shell restricted by hook to the facade | monitoring + gated Lead recovery |
 
-| Provider | Profile | Model / thinking | File |
-|---|---|---|---|
-| `codex-lead` | `paseo-lead` | `gpt-5.6-sol` / `high` | `codex-orchestration/profiles/paseo-lead.config.toml` |
-| `codex-worker` | `paseo-worker` | `gpt-5.6-luna` / `max` | `codex-orchestration/profiles/paseo-worker.config.toml` |
-| `codex-reviewer` | `paseo-reviewer` | `gpt-5.6-luna` / `max` | `codex-orchestration/profiles/paseo-reviewer.config.toml` |
-| `codex-supervisor` | `paseo-supervisor` | `gpt-5.6-luna` / `medium` | `codex-orchestration/profiles/paseo-supervisor.config.toml` |
+All providers use plain `command: ["codex"]`; there is no MCP-injecting
+app-server launcher.
 
-Each role home contains `hooks.json` at the `CODEX_HOME` root and policy scripts under `CODEX_HOME/hooks/`; Codex discovers the manifest at the root, not inside that script directory.
+## CLI facade
 
-Each TOML sets `sandbox_mode = "danger-full-access"` and
-`approval_policy = "never"`, disables native Codex subagents (`[agents] enabled = false`),
-and enables Codex hooks. Installed `PreToolUse`/`UserPromptSubmit` hooks enforce
-role allowlists, V3 authority, owned scope, and git-push scoping; the MCP
-`enabled_tools` allowlist remains the Supervisor capability boundary (see
-[../architecture.md](../architecture.md#capability-is-not-authority)).
+`codex-orchestration/bin/paseo-team` is installed at
+`$PASEO_HOME/bin/paseo-team`. Provider env sets `PASEO_TEAM_CLI` and
+`PASEO_CODEX_ROLE`. The wrapper requires `PASEO_AGENT_ID`, delegates to the
+public Paseo CLI, and enforces exact provider/model + thinking on every spawn.
 
-Why role-specific `CODEX_HOME` instead of `codex --profile`? Codex 0.147.0
-rejects `--profile` when the command is `app-server`, which is the interface
-Paseo uses. Per-role homes avoid that launcher quirk and keep config + session
-state separate. (Documented in `docs/codex-profiles-paseo-guide-vi.md` §1.)
+## Policy hooks
 
-## The launcher: codex-role-app-server
+`codex-orchestration/shared/paseo-team-policy/` enforces:
 
-Only **Lead** and **Supervisor** run through `codex-orchestration/bin/codex-role-app-server`.
-Worker and Reviewer use plain `codex` because they need no Paseo MCP.
+- V3 Task Brief authority and owned scope;
+- branch-scoped git push and permanent force-push/merge/deploy denial;
+- native-subagent, raw-Paseo, and MCP denial;
+- Worker/Reviewer orchestration denial;
+- restricted Supervisor wrapper use and recovery shape.
 
-The launcher (`codex-orchestration/bin/codex-role-app-server`):
+Hook behavior must still be verified against the exact installed Codex version;
+this remains a behavioral boundary on a trusted machine.
 
-1. Handles Paseo's `--version` probe (`exec codex --version`).
-2. Reads `PASEO_AGENT_ID` / `PASEO_AGENT_CWD` (exported by Paseo).
-3. When `PASEO_MCP_ACCESS` is `lead` or `supervisor` and an agent identity is
-   present, builds the agent-scoped MCP URL and injects it via Codex `-c`
-   overrides: `mcp_servers.paseo.url=...?callerAgentId=<id>`,
-   `mcp_servers.paseo.required=true`, and an optional
-   `bearer_token_env_var="PASEO_MCP_BEARER_TOKEN"`.
-4. For `supervisor`, additionally injects an `enabled_tools` allowlist (the
-   monitoring set plus a gated `create_agent`).
-5. Refuses to launch if workspace and `CODEX_HOME` overlap (an agent must not
-   edit its own role config/credentials).
-6. `exec codex <config args> "$@"`, forwarding Paseo's `app-server` args.
+## Install and validation
 
-`codex-orchestration/bin/codex-readonly-app-server` is a thin compatibility
-shim for older Paseo daemons that cached the former provider command; it just
-`exec`s the real launcher and applies **no** sandbox of its own.
+```bash
+./install codex
+node --check codex-orchestration/shared/paseo-team-policy/*.mjs
+node test/codex-policy.test.mjs
+node test/cli-orchestration.test.mjs
+```
 
-## Install
-
-`codex-orchestration/install.mjs` is the pack's self-contained installer (the
-root `./install codex` delegates to it). It:
-
-1. Copies the four profiles into `$CODEX_HOME` (default `~/.codex`) **and** into
-   the four role homes under `~/.codex-paseo/<role>/config.toml`, preserving any
-   locally-added `[projects.*]` trust blocks on re-install.
-2. Symlinks each role home's `auth.json` to `~/.codex/auth.json` (no secret copy).
-3. Copies the launcher to `$PASEO_HOME/bin` (default `~/.paseo/bin`).
-4. Merges four `codex-*` providers into `~/.paseo/config.json`, setting
-   `daemon.mcp.injectIntoAgents = false` and `PASEO_MCP_ACCESS` on Lead/Supervisor.
-5. Merges `~/.paseo/orchestration-preferences.json` with pinned fallback
-   defaults (`codex-worker/gpt-5.6-luna` for impl/ui/research/audit,
-   `codex-lead/gpt-5.6-sol` for planning) plus the Agent Profile validation
-   contract. It does not write `daemon.agentProfiles`; those host-specific,
-   whole-list values remain Human-managed.
-6. Backs up JSON before changes; never restarts the daemon. Fails closed when a
-   target differs unless `--force`.
-
-Provider config shape (see the live merge logic in `providerConfig()`):
-
-- Lead/Supervisor: `command` = the launcher; `env` = `CODEX_HOME` + `PASEO_MCP_ACCESS`.
-- Worker/Reviewer: `command` = `["codex"]`; `env` = `CODEX_HOME` only.
-
-## Where to start / what to watch for
-
-- **Language:** all Human-facing and agent-to-agent communication is Vietnamese;
-  technical literals and quoted evidence remain unchanged. A Human may request
-  another language for one specific output.
-- **Change role behavior:** edit the `developer_instructions` in
-  `codex-orchestration/profiles/paseo-<role>.config.toml`, then re-run
-  `./install codex`. Validate with
-  `codex --strict-config --profile paseo-<role> doctor --summary`.
-- **Change Supervisor's exposed tools:** edit the `enabled_tools` list in the
-  launcher. Keep `create_agent` gated to the lead-recovery shape — the
-  Supervisor's instructions (not a sandbox) are what stop other shapes.
-- **Model catalog drift:** `gpt-5.6-*` IDs, thinking levels, and saved Agent
-  Profiles can become stale. Always discover with `paseo provider models
-  codex-<role> --json` before assuming a model exists. Luna does not expose
-  `ultra`; Sol does. A Lead must reject an invalid profile rather than silently
-  repair it. Codex Lead routes to `codex-*` by default; cross-family requires an
-  explicit Human request. (§9 of the codex guide; `docs/agent-profiles.md`.)
-- **Residual limits:** hooks cover local tool paths, not hosted tools such as
-  `WebSearch`, and specialized paths may opt out. Full access still lets a
-  process write files or call the local MCP HTTP endpoint directly. Hook trust,
-  `app-server` event coverage, and deny behavior must be verified on the exact
-  Codex version; this is intentional for trusted machines (see
-  [../architecture.md](../architecture.md#capability-is-not-authority).)
-
-## Key source references
-
-- `codex-orchestration/profiles/paseo-*.config.toml` — role identity, model, sandbox, instructions.
-- `codex-orchestration/bin/codex-role-app-server` — selective MCP injection + supervisor allowlist.
-- `codex-orchestration/install.mjs` — `providerConfig()`, `defaultPreferences`, `installRoleConfig()` (preserves `[projects.*]` trust).
-- `docs/codex-profiles-paseo-guide-vi.md` — the operational guide this pack follows.
-- `docs/agent-profiles.md` — host Agent Profile setup and the mandatory validation cycle.
-- `tai-lieu-tham-khao/config/paseo.codex-providers.example.json` — the provider template the installer mirrors.
+The installer creates role homes, copies hooks and the facade, merges providers,
+disables daemon-wide MCP injection, preserves Human Agent Profiles, and never
+restarts Paseo.

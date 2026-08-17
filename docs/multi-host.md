@@ -27,8 +27,8 @@ limits         { writers, readers } — trần concurrency (object rõ ràng)
 routes         per-MODEL_CLASS route — CÙNG schema với model-routing.local.json
 ```
 
-`connection.type: "local"` là daemon mà Lead nói chuyện qua MCP server được
-inject (không cần endpoint). Endpoint VALUE (pairing offer / tcp URI) chỉ sống
+`connection.type: "local"` là daemon mặc định của `$PASEO_TEAM_CLI` (không
+cần endpoint). Endpoint VALUE (pairing offer / tcp URI) chỉ sống
 trong env var được trỏ qua `endpointEnv`; file không bao giờ chứa secret.
 
 Dạng endpoint được chấp nhận (parse-based validation, không character
@@ -56,29 +56,20 @@ trần.
 
 ## Cơ chế tạo agent trên daemon khác
 
-MCP server được inject vào pi agent **luôn trỏ daemon local** của agent đó
-(xác minh bằng source Paseo 0.2.5: `daemon.mcp.injectIntoAgents` tạo mcp
-config ở `createPiMcpConfigFile` với URL daemon của chính daemon cha).
-Vì vậy với host remote, Lead dùng **chính Paseo CLI qua bash**:
+Facade kế thừa `PASEO_HOST`, nên Lead chọn daemon remote qua env mà không gọi
+raw `paseo` hoặc đưa credential vào prompt/config:
 
 ```bash
-# Endpoint value NẰM TRONG ENV (ví dụ PASEO_HOST_B), cluster file chỉ tên:
-paseo status  --host "$PASEO_HOST_B" --json
-paseo provider ls --host "$PASEO_HOST_B" --json
-paseo provider models pi-peer --host "$PASEO_HOST_B" --json
-paseo run     --host "$PASEO_HOST_B" -d \
-  --provider "pi-peer/<pi-provider>/<model-id>" --thinking <level> \
-  --workspace <wks-id> --title "<title>" "<prompt>"
+PASEO_HOST="$PASEO_HOST_B" $PASEO_TEAM_CLI providers
+PASEO_HOST="$PASEO_HOST_B" $PASEO_TEAM_CLI models pi-worker
+PASEO_HOST="$PASEO_HOST_B" $PASEO_TEAM_CLI run \
+  --provider "pi-worker/<pi-provider>/<model-id>" --thinking <level> \
+  --workspace <wks-id> -- '<V3 brief>'
 ```
 
-CLI chấp nhận `host:port`, socket/pipe, `tcp://host:port?ssl=true&password=...`
-hoặc pairing offer URL (xem `paseo run --help`). Credential của endpoint sống
-trong env, không trong file.
-
-> Lưu ý bảo mật policy: policy extension chặn Peer dùng `paseo` CLI từ
-> bash (heuristic) và cho Lead quyền `bash`. Lead dùng CLI cho remote được
-> coi là đường orchestration chính thức — vẫn qua control plane Paseo, không
-> phải control plane thứ hai.
+CLI nền chấp nhận host:port, socket/pipe, TCP URI hoặc pairing offer URL.
+Credential endpoint chỉ sống trong env. Worker/Reviewer vẫn bị wrapper và policy
+chặn orchestration; Lead không được bypass bằng raw CLI.
 
 **Multi-Lead vẫn là phương án mặc định cho quan hệ chặt lâu dài**: một Lead
 mỗi daemon, Supervisor quan sát chéo và Human phối hợp portfolio. Cross-host

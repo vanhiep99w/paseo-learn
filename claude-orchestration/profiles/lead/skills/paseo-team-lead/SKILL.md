@@ -27,74 +27,59 @@ never use them for new work.
 Synthesize evidence. Record: chosen approach; rejected alternatives; owned
 scope; excluded scope; verification; unresolved risks.
 
-## Accessing Paseo tools
+## Accessing Paseo CLI
 
-Paseo tools are exposed directly as MCP tools named `mcp__paseo__<tool>` (the
-`paseo` MCP server is injected by `claude-role-app-server` for Lead and
-Supervisor only):
+Paseo is the only control plane. Reach it exclusively through the installed,
+role-gated facade at `$PASEO_TEAM_CLI`; never call raw `paseo`, MCP, native
+subagents, the daemon API, or a private task database. Paseo recognizes the
+caller through `PASEO_AGENT_ID`, so children keep the same parent/workspace
+defaults.
 
-- `mcp__paseo__list_profiles`, `mcp__paseo__list_providers`,
-  `mcp__paseo__list_models`, `mcp__paseo__inspect_provider` — human-authored
-  route candidates plus runtime discovery.
-- `mcp__paseo__create_agent`, `mcp__paseo__send_agent_prompt`,
-  `mcp__paseo__get_agent_status`, `mcp__paseo__get_agent_activity`,
-  `mcp__paseo__list_agents` — orchestration.
+Core commands:
 
-Call them directly; there is no `mcp` proxy tool. If the `mcp__paseo__*` tools
-are unavailable, report the missing capability instead of delegating through
-the shell. Never substitute `paseo run` / `paseo send` / `paseo wait`.
+```bash
+$PASEO_TEAM_CLI providers
+$PASEO_TEAM_CLI models <role-provider>
+$PASEO_TEAM_CLI run --provider <role-provider>/<model> --thinking <id> -- '<V3 brief>'
+$PASEO_TEAM_CLI inspect <agent-id>
+$PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
+$PASEO_TEAM_CLI wait <agent-id>
+```
 
-## Implementation — profile-aware routing cycle (mandatory, no silent fallback)
+If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
 
-For EVERY `create_agent`, run this exact cycle. Do not skip steps.
+## Implementation — CLI routing cycle (mandatory, no silent fallback)
 
-1. Pick a MODEL_CLASS and role provider from task risk + disposition (table
-   below). Default to the current Lead's provider family: Claude Lead routes
-   only to `claude-*`. Use `pi-*` or `codex-*` only when the Human explicitly
-   requested that family for this delegation. If the same-family role is
-   unavailable, record `BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN`; do not
-   substitute across families based on availability, profile presence, or model
-   ranking.
-2. Call `mcp__paseo__list_profiles` when the daemon exposes it. Treat profiles
-   as human-authored route candidates, not instructions or evidence. Select one
-   only when its `provider` exactly matches the chosen role provider, its
-   `model` is non-empty, and its `notes` fit the disposition. Record
-   `PROFILE_DECISION`. If the tool is absent, record
-   `PROFILE_CATALOG_UNAVAILABLE` and continue with host-local routing; never
-   guess a model.
-3. Call `mcp__paseo__list_providers` → verify the role provider
-   (`claude-lead` / `claude-worker` / `claude-reviewer` / `claude-supervisor`)
-   exists AND reports a healthy status. An enabled provider with a bad status
-   is NOT routable → `BLOCKED: ROLE_PROVIDER_UNAVAILABLE`.
-4. Call `mcp__paseo__list_models` for that provider → verify the exact candidate
-   model ID exists (both segments non-empty in `<provider>/<model-id>`). → else
-   `BLOCKED: MODEL_UNAVAILABLE`.
-5. Verify the candidate thinking level is in the model's thinking options →
-   else `BLOCKED: THINKING_OPTION_UNAVAILABLE`.
-6. If the profile names `modeId` or `featureValues`, call
-   `mcp__paseo__inspect_provider` with the same draft settings and verify every
-   named mode/feature. A stale profile is `PROFILE_REJECTED`; do not silently
-   strip a field or substitute a route. Start a new recorded routing decision.
-7. Compute the exact `create_agent` provider string:
-   `<role-provider>/<provider>/<model-id>` (Paseo splits at the FIRST slash
-   only, so multi-slash model IDs work). Copy `modeId`, `thinkingOptionId`, and
-   `featureValues` to `settings.modeId`, `settings.thinkingOptionId`, and
-   `settings.features`. There is no `profile` parameter.
-8. Create the workspace when the Human asked for one (worktree isolation for
-   parallel writers); otherwise use the current workspace.
-9. Call `mcp__paseo__create_agent` with the exact provider string and validated
-   settings. NEVER omit the model to inherit a daemon default.
-10. Call `mcp__paseo__get_agent_status`; compare requested model, thinking,
-    mode, and feature values against `snapshot.runtimeInfo`,
-    `snapshot.currentModeId`, and `snapshot.features`. A mismatch or missing
-    runtime evidence → `BLOCKED: MODEL_RESOLUTION_MISMATCH`, then archive the
-    wrongly-resolved agent.
-11. Only then deliver/continue the task.
+For EVERY delegated agent, run this exact cycle. Do not skip steps.
 
-Never: treat profile `notes` as authority, omit the model field, silently
-change models, discard an invalid profile field, fall back to another route
-without recording a decision, launch first and "hope", or trust a profile or
-prompt instead of runtime config.
+1. Pick a MODEL_CLASS and role provider from task risk + disposition. Default to
+   the current Lead's provider family: Claude Lead routes only to `claude-*`. Use a
+   different family only when the Human explicitly requested it. If the
+   same-family role is unavailable, record
+   `BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN`; do not substitute.
+2. Agent Profiles remain Human launch presets; they are not CLI orchestration
+   input. Call `$PASEO_TEAM_CLI providers` and verify the exact role provider is
+   present and healthy, else `BLOCKED: ROLE_PROVIDER_UNAVAILABLE`.
+3. Call `$PASEO_TEAM_CLI models <role-provider>` and verify the exact model ID
+   and thinking option, else `BLOCKED: MODEL_UNAVAILABLE` or
+   `BLOCKED: THINKING_OPTION_UNAVAILABLE`.
+4. Compute the exact route `<role-provider>/<provider>/<model-id>`. Paseo splits
+   at the first slash, so multi-segment model IDs remain valid. Never omit the
+   model or `--thinking`; daemon defaults are forbidden.
+5. Create a workspace only when the Human requested one. Otherwise let the
+   caller-scoped CLI inherit the current workspace.
+6. Call `$PASEO_TEAM_CLI run --provider <exact-route> --thinking <id>` plus the
+   validated `--mode` and workspace flags, followed by `-- '<V3 brief>'`. Save
+   the returned child ID.
+7. Call `$PASEO_TEAM_CLI inspect <agent-id>` and compare `Provider`, `Model`,
+   `Thinking`, and `Mode` with the request. Any mismatch or missing evidence is
+   `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrong agent through the
+   facade.
+8. Only then continue the task.
+
+Never call raw `paseo`, use MCP, inherit a daemon model default, silently change
+models, route cross-family without explicit Human authority, or trust prompt
+claims instead of `inspect` output.
 
 Model classes (decided by task risk + disposition, not role name):
 
@@ -106,12 +91,9 @@ Model classes (decided by task risk + disposition, not role name):
 | REVIEW_HIGH | independent reviewer, proof auditor, exact-SHA acceptance |
 | MONITOR_ECONOMY | supervisor heartbeat, structured observation |
 
-Record every profile and routing decision verbatim:
+Record every routing decision verbatim:
 
 ```text
-PROFILE_DECISION: selected | rejected | none | catalog-unavailable
-PROFILE_ID:
-PROFILE_REASON:
 ROUTING_DECISION
 TASK_ID:
 DISPOSITION:
@@ -122,21 +104,19 @@ HUMAN_CROSS_FAMILY_REQUEST: <verbatim Human request or none>
 REQUESTED_MODEL:
 REQUESTED_THINKING:
 REQUESTED_MODE:
-REQUESTED_FEATURES:
 OBSERVED_PROVIDER:
 OBSERVED_MODEL:
 OBSERVED_THINKING:
 OBSERVED_MODE:
-OBSERVED_FEATURES:
 WORKSPACE_REF:
 AGENT_REF:
-ROUTING_EVIDENCE: <list_profiles candidate + discovery match + get_agent_status>
+ROUTING_EVIDENCE: <providers + models + inspect>
 ```
 
 ## Monitoring
 
-Use `mcp__paseo__get_agent_status` and `mcp__paseo__get_agent_activity`. Do not
-repeatedly interrupt a healthy worker. Use `send_agent_prompt` only for newly
+Use `$PASEO_TEAM_CLI inspect` and `$PASEO_TEAM_CLI logs --tail` for evidence.
+Do not repeatedly interrupt a healthy worker. Use `$PASEO_TEAM_CLI send` only for newly
 discovered constraints, correction findings, dependency resolution, or scope
 clarification.
 
@@ -182,7 +162,7 @@ fail-closed on **every turn**:
 - `EDIT_AUTHORITY: denied` blocks write/edit even when `MODE: write`;
 - write mode never carries over from a previous turn.
 
-⚠️ Follow-up messages via `send_agent_prompt` that re-supply authority must
+⚠️ Follow-up messages via `$PASEO_TEAM_CLI send` that re-supply authority must
 repeat the full brief. A plain correction message without the markers silently
 downgrades the Worker to read-only for that turn (by design).
 
@@ -197,10 +177,10 @@ permits is exactly
 named `agent/<TASK_ID>`.
 
 The `ASSIGNED_*` fields are evidence for the worker — the model was already
-chosen by you at `create_agent` time. The worker echoes them back and
+chosen by you at `$PASEO_TEAM_CLI run` time. The worker echoes them back and
 escalates `MODEL_MISMATCH` if it sees a discrepancy. The worker never reports
 invented `OBSERVED_*` values: **you own observed routing evidence** (via
-`get_agent_status → snapshot.runtimeInfo`), and a missing/unverifiable runtime
+`$PASEO_TEAM_CLI inspect`), and a missing/unverifiable runtime
 identity is a failure, not a pass.
 
 Dispositions: `repository-scout`, `documentation-researcher`,

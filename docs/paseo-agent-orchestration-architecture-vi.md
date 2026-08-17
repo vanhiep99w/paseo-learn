@@ -1,4 +1,7 @@
-# Kiến trúc orchestration agent với Paseo, Pi, Codex và Claude
+# Kiến trúc orchestration agent với Paseo, Pi, Codex và Claude (historical MCP evaluation)
+
+> Tài liệu đánh giá lịch sử. Active architecture đã chuyển sang role-gated
+> `paseo-team` facade trên public Paseo CLI; xem `wiki/architecture.md`.
 
 Ngày đánh giá: 2026-08-07  
 Repository được đánh giá: paseo-pi-team  

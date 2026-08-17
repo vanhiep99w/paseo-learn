@@ -8,7 +8,7 @@ Repository này không phải ứng dụng runtime. Nó cung cấp:
 
 - role prompts và skills;
 - policy enforcement và tool allowlists;
-- launcher cho agent-scoped Paseo MCP;
+- role-gated facade trên public Paseo CLI;
 - installer cho từng agent CLI;
 - Agent Profiles và model-routing policy;
 - tài liệu kiến trúc, vận hành và kiểm thử.
@@ -50,10 +50,10 @@ ngôn ngữ khác cho một output cụ thể.
 
 ### Paseo là control plane duy nhất
 
-Lead delegate qua Paseo MCP (`create_agent`, `send_agent_prompt`,
-`get_agent_status`). Không tạo task database hoặc orchestration process riêng.
-Worker và Reviewer không nhận Paseo MCP. Supervisor chỉ nhận năm tool monitoring
-và recovery đã được allowlist.
+Lead/Supervisor delegate qua role-gated `$PASEO_TEAM_CLI`. Facade gọi public
+Paseo CLI và giữ parent/workspace qua `PASEO_AGENT_ID`; nó không gọi MCP hoặc
+daemon API trực tiếp. Raw `paseo`, MCP, native subagents và task database riêng
+đều bị cấm. Worker/Reviewer không có orchestration authority.
 
 ### V3 Task Brief là authority channel
 
@@ -76,15 +76,15 @@ quét toàn bộ `$HOME` để tìm source checkout.
 
 ### No silent fallback
 
-Trước mỗi `create_agent`, Lead phải kiểm tra:
+Trước mỗi agent, Lead phải chạy:
 
 ```text
-list_profiles → list_providers → list_models → inspect_provider
-              → create_agent → get_agent_status
+paseo-team providers → paseo-team models → paseo-team run → paseo-team inspect
 ```
 
-Model, thinking, mode hoặc features không khớp runtime sẽ bị `BLOCKED`, không tự
-sửa profile, bỏ field hoặc inherit daemon default.
+`run` bắt buộc exact provider/model và thinking. Provider, model, thinking hoặc
+mode không khớp `inspect` sẽ bị `BLOCKED`; không inherit daemon default. Agent
+Profiles chỉ là preset để Human launch, không phải routing input của Lead CLI.
 
 ### Same-family routing mặc định
 
@@ -143,7 +143,8 @@ chạy:
 ```
 
 Installer backup file bị thay thế, preserve Human-owned Agent Profiles và không
-tự restart daemon.
+tự restart daemon. Khi nâng từ bản MCP sang CLI-only, dùng `--force` để retire
+launcher/`mcp.json` cũ và thay provider config sau khi đã review dry-run.
 
 Sau khi các agent đang chạy đã an toàn:
 
@@ -204,8 +205,10 @@ Chi tiết: [`docs/agent-profiles.md`](docs/agent-profiles.md).
 Focused active-pack checks:
 
 ```bash
+node test/cli-orchestration.test.mjs
 node test/agent-profile-routing.test.mjs
 node test/active-policy.test.mjs
+node test/codex-policy.test.mjs
 node test/language-policy.test.mjs
 
 node --check pi-orchestration/install.mjs

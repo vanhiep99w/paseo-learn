@@ -5,16 +5,16 @@
  *
  * Mirrors codex-orchestration/install.mjs, adapted to Pi's resource model:
  *   - each role gets its own PI_CODING_AGENT_DIR under ~/.pi-paseo/<role>/,
- *     holding role-specific AGENTS.md (system prompt), settings.json, mcp.json,
- *     skills/, prompts/ and a symlinked policy extension;
+ *     holding role-specific AGENTS.md (system prompt), settings.json, skills/,
+ *     prompts/ and a symlinked policy extension;
  *   - the policy extension is first copied into a stable path under PASEO_HOME,
  *     so installed roles do not depend on the source checkout remaining put;
  *   - credentials and the package store (auth.json, npm/, git/, models.json)
  *     are symlinked from ~/.pi/agent so every role shares auth and the
- *     pi-mcp-adapter package, while keeping role resources isolated;
- *   - the launcher pi-role-app-server is copied to ~/.paseo/bin;
+ *     package store, while keeping role resources isolated;
+ *   - the role-gated `paseo-team` CLI facade is copied to ~/.paseo/bin;
  *   - four providers (pi-lead/worker/reviewer/supervisor) are merged into
- *     ~/.paseo/config.json with daemon.mcp.injectIntoAgents=false;
+ *     ~/.paseo/config.json with daemon-wide MCP injection disabled;
  *   - four namespaced Agent Profiles are merged without replacing Human-owned
  *     entries; they pin the first/default model advertised by the live Pi
  *     catalog and fail closed on managed-profile conflicts unless --force;
@@ -32,6 +32,7 @@ import {
 	readdir,
 	readlink,
 	rename,
+	rm,
 	stat,
 	symlink,
 	writeFile,
@@ -60,7 +61,7 @@ const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
 const sourceSharedExt = path.join(packRoot, "shared", "paseo-team-policy.ts");
 const sourceTaskBriefTemplate = path.join(packRoot, "templates", "TASK_BRIEF_V3.md");
-const sourceLauncher = path.join(packRoot, "bin", "pi-role-app-server");
+const sourceTeamCli = path.join(packRoot, "bin", "paseo-team");
 
 const piAgentDir = path.resolve(
 	process.env.PI_CODING_AGENT_DIR || path.join(homedir(), ".pi", "agent"),
@@ -72,7 +73,7 @@ const rolesHome = path.resolve(
 	process.env.PASEO_PI_ROLES_HOME || path.join(homedir(), ".pi-paseo"),
 );
 const paseoBin = path.join(paseoHome, "bin");
-const targetLauncher = path.join(paseoBin, "pi-role-app-server");
+const targetTeamCli = path.join(paseoBin, "paseo-team");
 const installedSharedExt = path.join(
 	paseoHome,
 	"packs",
@@ -252,21 +253,22 @@ function providerConfig() {
 	const env = (role) => ({
 		PI_CODING_AGENT_DIR: path.join(rolesHome, role),
 		PASEO_PI_ROLE: role,
+		PASEO_TEAM_CLI: targetTeamCli,
 	});
 	return {
 		"pi-lead": {
 			extends: "pi",
 			label: "Pi Lead",
 			description:
-				"Orchestration owner. Gets full Paseo MCP via the launcher; bounded by AGENTS.md and the policy extension.",
-			command: [targetLauncher],
-			env: { ...env("lead"), PASEO_MCP_ACCESS: "lead" },
+				"Orchestration owner. Uses the role-gated Paseo CLI; bounded by AGENTS.md and the policy extension.",
+			command: ["pi"],
+			env: env("lead"),
 		},
 		"pi-worker": {
 			extends: "pi",
 			label: "Pi Worker",
 			description:
-				"Bounded implementation agent. No Paseo MCP; write authority comes only from the current-turn Task Brief.",
+				"Bounded implementation agent. No orchestration CLI authority; write authority comes only from the current-turn Task Brief.",
 			command: ["pi"],
 			env: env("worker"),
 		},
@@ -274,7 +276,7 @@ function providerConfig() {
 			extends: "pi",
 			label: "Pi Reviewer",
 			description:
-				"Independent review. No Paseo MCP; behaviorally read-only on an exact candidate SHA or the current working diff.",
+				"Independent review. No orchestration CLI authority; behaviorally read-only on an exact candidate SHA or the current working diff.",
 			command: ["pi"],
 			env: env("reviewer"),
 		},
@@ -282,12 +284,17 @@ function providerConfig() {
 			extends: "pi",
 			label: "Pi Supervisor",
 			description:
-				"Governance observer. Gets a read-only allowlist of Paseo MCP tools; instruction-gated recovery only.",
-			command: [targetLauncher],
-			env: { ...env("supervisor"), PASEO_MCP_ACCESS: "supervisor" },
+				"Governance observer. Uses the role-gated Paseo CLI monitoring/recovery surface.",
+			command: ["pi"],
+			env: env("supervisor"),
 		},
 	};
 }
+
+const obsoletePreferences = [
+	"When list_profiles is available, treat a complete profile whose provider matches the chosen pi role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
+	"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
+];
 
 const defaultPreferences = {
 	providers: {
@@ -301,8 +308,8 @@ const defaultPreferences = {
 		"Use pi-lead for decomposition and acceptance, pi-worker for bounded writes in the current workspace, and pi-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
 		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Pi Lead routes to pi-* role providers. Use claude-* or codex-* only when the Human explicitly requests that provider family for the delegation. If the required Pi role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
-		"When list_profiles is available, treat a complete profile whose provider matches the chosen pi role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
-		"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
+		"Agent Profiles remain Human launch presets; CLI orchestration does not infer routes from them. Discover provider/model/thinking availability with `paseo-team providers` and `paseo-team models`, pin every value on `paseo-team run`, and post-verify with `paseo-team inspect`. Never silently fall back.",
+		"Use only the role-gated `paseo-team` facade for orchestration. Do not call raw `paseo`, MCP, native subagents, or a private task database.",
 		"Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use pi-supervisor in ordinary single-task flows.",
 	],
 };
@@ -384,6 +391,16 @@ async function installOwnedFile(source, target, mode) {
  *  normal `./install pi` after the first run does not fail on existing skill/
  *  prompt dirs, and only blocks when a file the repo owns actually changed.
  *  Files present only in target (user-added) are left untouched. */
+async function retireOwnedFile(target, label) {
+	if (!(await exists(target))) return;
+	if (!force) {
+		throw new Error(`Obsolete managed ${label} still exists at ${target}; rerun with --force after review`);
+	}
+	await backup(target);
+	if (!dryRun) await rm(target, { force: true });
+	console.log(`${dryRun ? "would remove" : "removed"}: ${target} (${label})`);
+}
+
 async function installOwnedDir(source, target) {
 	if (!(await exists(source))) return;
 	await walkSync(source, target);
@@ -448,8 +465,14 @@ async function installRole(role) {
 		throw new Error(`Role source missing: ${sourceRole}`);
 	}
 
-	// Role-owned files (AGENTS.md, settings.json, mcp.json when present).
-	for (const file of ["AGENTS.md", "settings.json", "mcp.json"]) {
+	// Retire MCP config managed by older pack versions before installing the
+	// CLI-only role resources.
+	if (role === "lead" || role === "supervisor") {
+		await retireOwnedFile(path.join(roleHome, "mcp.json"), "Pi role MCP config");
+	}
+
+	// Role-owned files (AGENTS.md and settings.json).
+	for (const file of ["AGENTS.md", "settings.json"]) {
 		const src = path.join(sourceRole, file);
 		if (await exists(src)) {
 			const mode = file.endsWith(".json") ? 0o600 : undefined;
@@ -484,7 +507,7 @@ async function installRole(role) {
 	);
 
 	// Shared credential + package store + model catalog: symlinked so every
-	// role shares auth and pi-mcp-adapter while keeping role resources isolated.
+	// role shares auth and installed packages while keeping role resources isolated.
 	await installSymlink(
 		path.join(piAgentDir, "auth.json"),
 		path.join(roleHome, "auth.json"),
@@ -505,18 +528,6 @@ async function checkPrereqs() {
 		if (!existsSyncSync(await which(bin))) {
 			problems.push(`${bin} is not on PATH`);
 		}
-	}
-	const adapterPkg = path.join(
-		piAgentDir,
-		"npm",
-		"node_modules",
-		"pi-mcp-adapter",
-		"package.json",
-	);
-	if (!existsSyncSync(adapterPkg)) {
-		problems.push(
-			"pi-mcp-adapter is not installed in ~/.pi/agent; run `pi install npm:pi-mcp-adapter` first",
-		);
 	}
 	const authPath = path.join(piAgentDir, "auth.json");
 	if (!existsSyncSync(authPath)) {
@@ -551,7 +562,6 @@ async function preparePaseoConfig(profiles) {
 	config.version ??= 1;
 	config.daemon ??= {};
 	config.daemon.mcp ??= {};
-	config.daemon.mcp.enabled = true;
 	config.daemon.mcp.injectIntoAgents = false;
 	mergeManagedAgentProfiles(config, profiles);
 	config.agents ??= {};
@@ -595,8 +605,9 @@ async function main() {
 		await installRole(role);
 	}
 
-	console.log(`\n== launcher ==`);
-	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);
+	console.log(`\n== role-gated Paseo CLI ==`);
+	await installOwnedFile(sourceTeamCli, targetTeamCli, 0o755);
+	await retireOwnedFile(path.join(paseoBin, "pi-role-app-server"), "Pi MCP launcher");
 
 	console.log(`\n== paseo config ==`);
 	await writeJsonAtomic(paseoConfigPath, config);
@@ -608,6 +619,9 @@ async function main() {
 	});
 	preferences.providers ??= {};
 	preferences.preferences ??= [];
+	preferences.preferences = preferences.preferences.filter(
+		(preference) => !obsoletePreferences.includes(preference),
+	);
 	for (const [category, provider] of Object.entries(
 		defaultPreferences.providers,
 	)) {

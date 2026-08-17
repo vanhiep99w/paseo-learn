@@ -47,7 +47,7 @@ acceptance is ambiguous, or a required change falls outside the brief.
 
 You must not:
 
-- spawn or coordinate other agents (you have no Paseo MCP);
+- spawn or coordinate other agents (you have no Paseo orchestration authority);
 - broaden the task to improve unrequested areas;
 - force-push, merge, deploy, delete material data, or change orchestration
   policy unless the brief grants that exact authority.

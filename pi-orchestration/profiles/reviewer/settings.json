@@ -1,12 +1,11 @@
 {
-  "$comment": "Reviewer role resources. Strictly read-only: the policy extension leaves only read active and revokes write/edit/bash. No Paseo MCP. Independent of the Engineer.",
+  "$comment": "Reviewer role resources. Strictly read-only: the policy extension leaves only read active and revokes write/edit/bash. No orchestration CLI authority. Independent of the Engineer.",
   "extensions": ["./extensions/paseo-team-policy.ts"],
   "skills": ["./skills"],
   "prompts": ["./prompts"],
   "defaultProjectTrust": "never",
   "enableSkillCommands": true,
   "packages": [
-    "npm:pi-mcp-adapter",
     "npm:@juicesharp/rpiv-ask-user-question",
     "git:github.com/vanhiep99w/pi-learn"
   ]

@@ -13,9 +13,9 @@
  *     default CLAUDE_CONFIG_DIR so every role shares one login. On macOS the
  *     keychain holds credentials, so set ANTHROPIC_API_KEY in the provider env
  *     or run `claude` once per role home instead;
- *   - the launcher claude-role-app-server is copied to ~/.paseo/bin;
+ *   - the role-gated `paseo-team` CLI facade is copied to ~/.paseo/bin;
  *   - four providers (claude-lead/worker/reviewer/supervisor) are merged into
- *     ~/.paseo/config.json with daemon.mcp.injectIntoAgents=false;
+ *     ~/.paseo/config.json with daemon-wide MCP injection disabled;
  *   - four namespaced Agent Profiles are merged without replacing Human-owned
  *     entries; they pin the first/default model advertised by the live Claude
  *     catalog and fail closed on managed-profile conflicts unless --force;
@@ -33,6 +33,7 @@ import {
 	readdir,
 	readlink,
 	rename,
+	rm,
 	stat,
 	symlink,
 	writeFile,
@@ -61,7 +62,7 @@ const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
 const sourceSharedHooks = path.join(packRoot, "shared", "paseo-team-policy");
 const sourceTaskBriefTemplate = path.join(packRoot, "templates", "TASK_BRIEF_V3.md");
-const sourceLauncher = path.join(packRoot, "bin", "claude-role-app-server");
+const sourceTeamCli = path.join(packRoot, "bin", "paseo-team");
 
 const claudeConfigDir = path.resolve(
 	process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), ".claude"),
@@ -73,7 +74,7 @@ const rolesHome = path.resolve(
 	process.env.PASEO_CLAUDE_ROLES_HOME || path.join(homedir(), ".claude-paseo"),
 );
 const paseoBin = path.join(paseoHome, "bin");
-const targetLauncher = path.join(paseoBin, "claude-role-app-server");
+const targetTeamCli = path.join(paseoBin, "paseo-team");
 const paseoConfigPath = path.join(paseoHome, "config.json");
 const preferencesPath = path.join(paseoHome, "orchestration-preferences.json");
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
@@ -277,6 +278,7 @@ function providerConfig() {
 	const env = (role) => ({
 		CLAUDE_CONFIG_DIR: path.join(rolesHome, role),
 		PASEO_CLAUDE_ROLE: role,
+		PASEO_TEAM_CLI: targetTeamCli,
 		...authEnv(),
 	});
 	return {
@@ -284,15 +286,15 @@ function providerConfig() {
 			extends: "claude",
 			label: "Claude Lead",
 			description:
-				"Orchestration owner. Gets the full Paseo MCP catalog via the launcher; bounded by CLAUDE.md and the policy hooks.",
-			command: [targetLauncher],
-			env: { ...env("lead"), PASEO_MCP_ACCESS: "lead" },
+				"Orchestration owner. Uses the role-gated Paseo CLI; bounded by CLAUDE.md and the policy hooks.",
+			command: ["claude"],
+			env: env("lead"),
 		},
 		"claude-worker": {
 			extends: "claude",
 			label: "Claude Worker",
 			description:
-				"Bounded implementation agent. No Paseo MCP; write/commit/push authority comes only from the current-turn Task Brief.",
+				"Bounded implementation agent. No orchestration CLI authority; write/commit/push authority comes only from the current-turn Task Brief.",
 			command: ["claude"],
 			env: env("worker"),
 		},
@@ -300,7 +302,7 @@ function providerConfig() {
 			extends: "claude",
 			label: "Claude Reviewer",
 			description:
-				"Independent review. No Paseo MCP; behaviorally read-only on an exact candidate SHA or the current working diff.",
+				"Independent review. No orchestration CLI authority; behaviorally read-only on an exact candidate SHA or the current working diff.",
 			command: ["claude"],
 			env: env("reviewer"),
 		},
@@ -308,12 +310,17 @@ function providerConfig() {
 			extends: "claude",
 			label: "Claude Supervisor",
 			description:
-				"Governance observer. Gets a read-only allowlist of Paseo MCP tools; instruction-gated recovery only.",
-			command: [targetLauncher],
-			env: { ...env("supervisor"), PASEO_MCP_ACCESS: "supervisor" },
+				"Governance observer. Uses the role-gated Paseo CLI monitoring/recovery surface.",
+			command: ["claude"],
+			env: env("supervisor"),
 		},
 	};
 }
+
+const obsoletePreferences = [
+	"When list_profiles is available, treat a complete profile whose provider matches the chosen claude role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
+	"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
+];
 
 const defaultPreferences = {
 	providers: {
@@ -327,8 +334,8 @@ const defaultPreferences = {
 		"Use claude-lead for decomposition and acceptance, claude-worker for bounded writes in the current workspace, and claude-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
 		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Claude Lead routes to claude-* role providers. Use pi-* or codex-* only when the Human explicitly requests that provider family for the delegation. If the required Claude role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
-		"When list_profiles is available, treat a complete profile whose provider matches the chosen claude role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
-		"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
+		"Agent Profiles remain Human launch presets; CLI orchestration does not infer routes from them. Discover provider/model/thinking availability with `paseo-team providers` and `paseo-team models`, pin every value on `paseo-team run`, and post-verify with `paseo-team inspect`. Never silently fall back.",
+		"Use only the role-gated `paseo-team` facade for orchestration. Do not call raw `paseo`, MCP, native subagents, or a private task database.",
 		"Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use claude-supervisor in ordinary single-task flows.",
 	],
 };
@@ -405,6 +412,16 @@ async function installOwnedFile(source, target, mode) {
 }
 
 /** Recursively sync a source directory into target, per file. */
+async function retireOwnedFile(target, label) {
+	if (!(await exists(target))) return;
+	if (!force) {
+		throw new Error(`Obsolete managed ${label} still exists at ${target}; rerun with --force after review`);
+	}
+	await backup(target);
+	if (!dryRun) await rm(target, { force: true });
+	console.log(`${dryRun ? "would remove" : "removed"}: ${target} (${label})`);
+}
+
 async function installOwnedDir(source, target) {
 	if (!(await exists(source))) return;
 	await walkSync(source, target);
@@ -468,8 +485,8 @@ async function installRole(role) {
 		throw new Error(`Role source missing: ${sourceRole}`);
 	}
 
-	// Role-owned files (CLAUDE.md, settings.json). mcp.json is NOT used: the
-	// launcher injects the paseo MCP server via an inline --mcp-config JSON.
+	// Role-owned files (CLAUDE.md and settings.json). Orchestration is CLI-only;
+	// no role receives an MCP configuration.
 	for (const file of ["CLAUDE.md", "settings.json"]) {
 		const src = path.join(sourceRole, file);
 		if (await exists(src)) {
@@ -553,7 +570,6 @@ async function preparePaseoConfig(profiles) {
 	config.version ??= 1;
 	config.daemon ??= {};
 	config.daemon.mcp ??= {};
-	config.daemon.mcp.enabled = true;
 	config.daemon.mcp.injectIntoAgents = false;
 	mergeManagedAgentProfiles(config, profiles);
 	config.agents ??= {};
@@ -605,8 +621,10 @@ async function main() {
 		await installRole(role);
 	}
 
-	console.log(`\n== launcher ==`);
-	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);
+	console.log(`\n== role-gated Paseo CLI ==`);
+	await installOwnedFile(sourceTeamCli, targetTeamCli, 0o755);
+	await retireOwnedFile(path.join(paseoBin, "claude-role-app-server"), "Claude MCP launcher");
+	await retireOwnedFile(path.join(paseoBin, "claude-readonly-app-server"), "Claude compatibility launcher");
 
 	console.log(`\n== paseo config ==`);
 	await writeJsonAtomic(paseoConfigPath, config);
@@ -618,6 +636,9 @@ async function main() {
 	});
 	preferences.providers ??= {};
 	preferences.preferences ??= [];
+	preferences.preferences = preferences.preferences.filter(
+		(preference) => !obsoletePreferences.includes(preference),
+	);
 	for (const [category, provider] of Object.entries(
 		defaultPreferences.providers,
 	)) {

@@ -1,0 +1,249 @@
+#!/usr/bin/env node
+
+/**
+ * Role-gated Paseo CLI facade for paseo-learn orchestration packs.
+ *
+ * This wrapper deliberately shells out to the public `paseo` CLI. It is not a
+ * second control plane and does not call the daemon API or MCP directly.
+ */
+
+import { spawnSync } from "node:child_process";
+
+const ROLE_ENVS = [
+	["PASEO_PI_ROLE", "pi"],
+	["PASEO_CLAUDE_ROLE", "claude"],
+	["PASEO_CODEX_ROLE", "codex"],
+];
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const PROVIDER_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/.+$/;
+
+function fail(message, code = 2) {
+	console.error(`paseo-team: ${message}`);
+	process.exit(code);
+}
+
+function detectCaller() {
+	const found = ROLE_ENVS.filter(([name]) => process.env[name]);
+	if (found.length !== 1) {
+		fail("exactly one Paseo role environment must be set");
+	}
+	const [envName, family] = found[0];
+	const role = process.env[envName];
+	if (!["lead", "worker", "reviewer", "supervisor"].includes(role)) {
+		fail(`unsupported role ${JSON.stringify(role)}`);
+	}
+	if (!process.env.PASEO_AGENT_ID) {
+		fail("PASEO_AGENT_ID is required; orchestration is agent-scoped only");
+	}
+	return { family, role };
+}
+
+function runPaseo(args, { capture = false } = {}) {
+	const result = spawnSync("paseo", args, {
+		encoding: capture ? "utf8" : undefined,
+		stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+		env: process.env,
+	});
+	if (result.error) fail(`cannot execute paseo: ${result.error.message}`, 1);
+	if (capture && result.status !== 0) {
+		if (result.stderr) process.stderr.write(result.stderr);
+		fail(`paseo ${args[0]} failed`, result.status || 1);
+	}
+	if (!capture) process.exit(result.status ?? 1);
+	return result.stdout;
+}
+
+function requireNoArgs(args, command) {
+	if (args.length) fail(`${command} accepts no arguments`);
+}
+
+function requireId(value, label = "agent id") {
+	if (!value || !ID_RE.test(value)) fail(`invalid ${label}`);
+	return value;
+}
+
+function splitPrompt(args) {
+	const separator = args.indexOf("--");
+	if (separator === -1) fail("prompt must follow a `--` separator");
+	const options = args.slice(0, separator);
+	const promptParts = args.slice(separator + 1);
+	if (promptParts.length !== 1 || !promptParts[0].trim()) {
+		fail("prompt must be one non-empty shell argument after `--`");
+	}
+	return { options, prompt: promptParts[0] };
+}
+
+function parseAllowedOptions(args, spec) {
+	const out = [];
+	const seen = new Map();
+	for (let i = 0; i < args.length; i += 1) {
+		const flag = args[i];
+		const rule = spec[flag];
+		if (!rule) fail(`option ${JSON.stringify(flag)} is not allowed`);
+		if (rule.repeat !== true && seen.has(flag)) fail(`duplicate option ${flag}`);
+		const value = args[++i];
+		if (value === undefined || value.startsWith("--")) fail(`${flag} requires a value`);
+		if (rule.values && !rule.values.includes(value)) fail(`invalid value for ${flag}`);
+		if (rule.pattern && !rule.pattern.test(value)) fail(`invalid value for ${flag}`);
+		seen.set(flag, value);
+		out.push(flag, value);
+	}
+	return { argv: out, seen };
+}
+
+const RUN_OPTIONS = {
+	"--provider": { pattern: PROVIDER_RE },
+	"--thinking": { pattern: ID_RE },
+	"--mode": { pattern: ID_RE },
+	"--title": {},
+	"--workspace": { pattern: ID_RE },
+	"--new-workspace": { values: ["local", "worktree"] },
+	"--worktree-mode": { values: ["branch-off", "checkout-branch", "checkout-pr"] },
+	"--worktree-slug": { pattern: ID_RE },
+	"--new-branch": {},
+	"--base": {},
+	"--branch": {},
+	"--pr-number": { pattern: /^\d+$/ },
+	"--forge": { pattern: ID_RE },
+	"--label": { repeat: true, pattern: /^[^=\s]+=[^=]+$/ },
+};
+
+const WORKSPACE_OPTIONS = {
+	"--isolation": { values: ["local", "worktree"] },
+	"--path": {},
+	"--project": { pattern: ID_RE },
+	"--title": {},
+	"--mode": { values: ["branch-off", "checkout-branch", "checkout-pr"] },
+	"--worktree-slug": { pattern: ID_RE },
+	"--new-branch": {},
+	"--base": {},
+	"--branch": {},
+	"--pr-number": { pattern: /^\d+$/ },
+	"--forge": { pattern: ID_RE },
+};
+
+function validateSupervisorLeadTarget(id, family) {
+	const raw = runPaseo(["inspect", id, "--json"], { capture: true });
+	let info;
+	try {
+		info = JSON.parse(raw);
+	} catch {
+		fail("cannot parse paseo inspect output", 1);
+	}
+	if (info.Provider !== `${family}-lead`) {
+		fail(`supervisor may message only ${family}-lead agents`);
+	}
+}
+
+function commandRun(args, caller) {
+	if (caller.role !== "lead" && caller.role !== "supervisor") fail("run is not allowed for this role");
+	const { options, prompt } = splitPrompt(args);
+	const parsed = parseAllowedOptions(options, RUN_OPTIONS);
+	const provider = parsed.seen.get("--provider");
+	const thinking = parsed.seen.get("--thinking");
+	if (!provider) fail("run requires an exact --provider <role-provider/model> route");
+	if (!thinking) fail("run requires --thinking; daemon defaults are forbidden");
+
+	if (caller.role === "supervisor") {
+		if (!provider.startsWith(`${caller.family}-lead/`)) {
+			fail(`supervisor recovery provider must start with ${caller.family}-lead/`);
+		}
+		if (parsed.seen.has("--workspace") || parsed.seen.has("--new-workspace")) {
+			fail("supervisor recovery must inherit the current workspace");
+		}
+		const labels = [];
+		for (let i = 0; i < parsed.argv.length; i += 2) {
+			if (parsed.argv[i] === "--label") labels.push(parsed.argv[i + 1]);
+		}
+		const purpose = labels.find((label) => label.startsWith("purpose="))?.slice(8);
+		const recoveryFor = labels.find((label) => label.startsWith("recovery_for="))?.slice(13);
+		if (!["recovery", "bootstrap"].includes(purpose) || !recoveryFor) {
+			fail("supervisor run requires purpose=recovery|bootstrap and recovery_for=<project> labels");
+		}
+	}
+
+	runPaseo(["run", "--background", "--quiet", ...parsed.argv, prompt]);
+}
+
+function commandSend(args, caller) {
+	const { options, prompt } = splitPrompt(args);
+	if (options.length !== 1) fail("send syntax: send <agent-id> -- <prompt>");
+	const id = requireId(options[0]);
+	if (caller.role === "supervisor") validateSupervisorLeadTarget(id, caller.family);
+	runPaseo(["send", id, "--no-wait", "--json", prompt]);
+}
+
+function main() {
+	const caller = detectCaller();
+	const [command, ...args] = process.argv.slice(2);
+	if (!command || command === "help" || command === "--help") {
+		console.log("paseo-team commands: providers, models, ls, inspect, logs, send, wait, run, archive, workspace-ls, workspace-create, workspace-archive");
+		return;
+	}
+	if (["worker", "reviewer"].includes(caller.role)) {
+		fail(`${caller.role} has no orchestration authority`);
+	}
+
+	switch (command) {
+		case "providers":
+			requireNoArgs(args, command);
+			runPaseo(["provider", "ls", "--json"]);
+			break;
+		case "models":
+			if (args.length !== 1 || !ID_RE.test(args[0])) fail("models requires one provider id");
+			runPaseo(["provider", "models", args[0], "--thinking", "--json"]);
+			break;
+		case "ls": {
+			const allowed = new Set(["--all", "--global"]);
+			if (args.some((arg) => !allowed.has(arg))) fail("ls accepts only --all and --global");
+			runPaseo(["ls", ...(args.includes("--all") ? ["--all"] : []), ...(args.includes("--global") ? ["--global"] : []), "--json"]);
+			break;
+		}
+		case "inspect":
+			if (args.length !== 1) fail("inspect requires one agent id");
+			runPaseo(["inspect", requireId(args[0]), "--json"]);
+			break;
+		case "logs": {
+			const id = requireId(args[0]);
+			if (args.length === 1) runPaseo(["logs", id]);
+			else if (args.length === 3 && args[1] === "--tail" && /^\d+$/.test(args[2])) runPaseo(["logs", id, "--tail", args[2]]);
+			else fail("logs syntax: logs <agent-id> [--tail <n>]");
+			break;
+		}
+		case "send":
+			commandSend(args, caller);
+			break;
+		case "wait":
+			if (caller.role !== "lead") fail("wait is Lead-only");
+			if (args.length === 1) runPaseo(["wait", requireId(args[0])]);
+			else if (args.length === 3 && args[1] === "--timeout" && /^\d+$/.test(args[2])) runPaseo(["wait", requireId(args[0]), "--timeout", args[2]]);
+			else fail("wait syntax: wait <agent-id> [--timeout <seconds>]");
+			break;
+		case "run":
+			commandRun(args, caller);
+			break;
+		case "archive":
+			if (caller.role !== "lead" || args.length !== 1) fail("archive is Lead-only and requires one agent id");
+			runPaseo(["archive", requireId(args[0]), "--json"]);
+			break;
+		case "workspace-ls":
+			requireNoArgs(args, command);
+			runPaseo(["workspace", "ls", "--json"]);
+			break;
+		case "workspace-create": {
+			if (caller.role !== "lead") fail("workspace-create is Lead-only");
+			const parsed = parseAllowedOptions(args, WORKSPACE_OPTIONS);
+			if (!parsed.seen.has("--isolation")) fail("workspace-create requires --isolation");
+			runPaseo(["workspace", "create", ...parsed.argv, "--json"]);
+			break;
+		}
+		case "workspace-archive":
+			if (caller.role !== "lead" || args.length !== 1) fail("workspace-archive is Lead-only and requires one workspace id");
+			runPaseo(["workspace", "archive", requireId(args[0], "workspace id"), "--json"]);
+			break;
+		default:
+			fail(`unknown command ${JSON.stringify(command)}`);
+	}
+}
+
+main();
