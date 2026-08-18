@@ -37,20 +37,17 @@ acceptance is ambiguous, or a required change falls outside the brief.
 
 - Inspect before editing; stay inside owned paths.
 - Preserve pre-existing user changes.
-- Commit only when `COMMIT_AUTHORITY: allowed`; push only when
-  `PUSH_TASK_BRANCH_AUTHORITY: allowed`, and only in the exact form
-  `git push -u origin HEAD:refs/heads/agent/<TASK_ID>` (branch-scoped; task
-  branches must be named `agent/<TASK_ID>`). Force-push, merge, and deploy are
-  always denied for peers.
+- `MODE: write` grants edit, commit, push, and merge on the current working
+  branch (including `main`). `MODE: read-only` grants none of them. Force-push
+  (any spelling), `git commit --amend`, and deploy are always denied.
 - Escalate when scope overlaps, acceptance is ambiguous, or a required change
   falls outside the brief.
 
 You must not:
 
-- spawn or coordinate other agents (you have no Paseo orchestration authority);
+- spawn or coordinate other agents (you have no Paseo MCP);
 - broaden the task to improve unrequested areas;
-- force-push, merge, deploy, delete material data, or change orchestration
-  policy unless the brief grants that exact authority.
+- force-push, deploy, delete material data, or change orchestration policy.
 
 ## Model awareness
 
@@ -76,7 +73,7 @@ FILES_CHANGED:
 COMMANDS_RUN:
 VERIFICATION:
 
-CANDIDATE_SHA:        # only when COMMIT_AUTHORITY was granted
+CANDIDATE_SHA:        # when a commit was created
 BRANCH:
 WORKTREE_CLEAN:
 

@@ -27,8 +27,8 @@ limits         { writers, readers } — trần concurrency (object rõ ràng)
 routes         per-MODEL_CLASS route — CÙNG schema với model-routing.local.json
 ```
 
-`connection.type: "local"` là daemon mặc định của `$PASEO_TEAM_CLI` (không
-cần endpoint). Endpoint VALUE (pairing offer / tcp URI) chỉ sống
+`connection.type: "local"` là daemon mà Lead nói chuyện qua MCP server được
+inject (không cần endpoint). Endpoint VALUE (pairing offer / tcp URI) chỉ sống
 trong env var được trỏ qua `endpointEnv`; file không bao giờ chứa secret.
 
 Dạng endpoint được chấp nhận (parse-based validation, không character
@@ -56,20 +56,29 @@ trần.
 
 ## Cơ chế tạo agent trên daemon khác
 
-Facade kế thừa `PASEO_HOST`, nên Lead chọn daemon remote qua env mà không gọi
-raw `paseo` hoặc đưa credential vào prompt/config:
+MCP server được inject vào pi agent **luôn trỏ daemon local** của agent đó
+(xác minh bằng source Paseo 0.2.5: `daemon.mcp.injectIntoAgents` tạo mcp
+config ở `createPiMcpConfigFile` với URL daemon của chính daemon cha).
+Vì vậy với host remote, Lead dùng **chính Paseo CLI qua bash**:
 
 ```bash
-PASEO_HOST="$PASEO_HOST_B" $PASEO_TEAM_CLI providers
-PASEO_HOST="$PASEO_HOST_B" $PASEO_TEAM_CLI models pi-worker
-PASEO_HOST="$PASEO_HOST_B" $PASEO_TEAM_CLI run \
-  --provider "pi-worker/<pi-provider>/<model-id>" --thinking <level> \
-  --workspace <wks-id> -- '<V3 brief>'
+# Endpoint value NẰM TRONG ENV (ví dụ PASEO_HOST_B), cluster file chỉ tên:
+paseo status  --host "$PASEO_HOST_B" --json
+paseo provider ls --host "$PASEO_HOST_B" --json
+paseo provider models pi-peer --host "$PASEO_HOST_B" --json
+paseo run     --host "$PASEO_HOST_B" -d \
+  --provider "pi-peer/<pi-provider>/<model-id>" --thinking <level> \
+  --workspace <wks-id> --title "<title>" "<prompt>"
 ```
 
-CLI nền chấp nhận host:port, socket/pipe, TCP URI hoặc pairing offer URL.
-Credential endpoint chỉ sống trong env. Worker/Reviewer vẫn bị wrapper và policy
-chặn orchestration; Lead không được bypass bằng raw CLI.
+CLI chấp nhận `host:port`, socket/pipe, `tcp://host:port?ssl=true&password=...`
+hoặc pairing offer URL (xem `paseo run --help`). Credential của endpoint sống
+trong env, không trong file.
+
+> Lưu ý bảo mật policy: policy extension chặn Peer dùng `paseo` CLI từ
+> bash (heuristic) và cho Lead quyền `bash`. Lead dùng CLI cho remote được
+> coi là đường orchestration chính thức — vẫn qua control plane Paseo, không
+> phải control plane thứ hai.
 
 **Multi-Lead vẫn là phương án mặc định cho quan hệ chặt lâu dài**: một Lead
 mỗi daemon, Supervisor quan sát chéo và Human phối hợp portfolio. Cross-host
@@ -85,9 +94,7 @@ CANDIDATE_REF  <repository-url>@<commit-sha>
 
 `CANDIDATE_REF` độc lập host: git SHA là điểm neo duy nhất giữa writer và
 reviewer nằm hai host — vì vậy cross-host review **bắt buộc**
-`COMMIT_AUTHORITY: allowed` + `PUSH_TASK_BRANCH_AUTHORITY: allowed` trong
-brief của Engineer (push authority là branch-scoped: chỉ
-`git push -u origin HEAD:refs/heads/agent/<TASK_ID>`), và reviewer dùng fresh
+`MODE: write` trong brief của Engineer (commit/push trực tiếp branch đang làm, kể cả branch chính), và reviewer dùng fresh
 clone/fetch tới đúng SHA.
 
 ## Failure & recovery
@@ -117,7 +124,7 @@ re-review CHƯA hoàn tất. Khi chạy đủ, ghi kết quả vào PR/issue li�
    có model mapping khác nhau).
 4. Lead (host A) spawn reviewer trên host B:
    Engineer (A) được cấp COMMIT+PUSH → push đúng form
-   `git push -u origin HEAD:refs/heads/agent/<TASK_ID>` tới remote chung
+   push branch được chỉ định tới remote chung
    → reviewer (B) clone/fetch đúng `CANDIDATE_SHA`, refuse nếu HEAD ≠ SHA.
 5. Kill daemon host B giữa task writer → Lead báo `HOST_ROUTE_UNAVAILABLE`,
    không spawn writer thứ hai cùng scope.

@@ -1,6 +1,6 @@
 ---
 name: paseo-team-lead
-description: Coordinate research, implementation, correction, and independent review through Paseo-managed Pi workers/reviewers. Use when orchestrating multi-agent work on a repository — scoping, spawning read-only researchers, delegating a worker in the current workspace, monitoring, and running a serialized independent review of a stable SHA or working diff.
+description: Coordinate research, implementation, correction, and independent review through Paseo-managed Pi workers/reviewers. Use when orchestrating multi-agent work on a repository — scoping, spawning read-only researchers, delegating a worker to an isolated worktree, monitoring, and running an independent review on a stable candidate SHA.
 ---
 
 # Paseo Team Lead Workflow (Pi)
@@ -27,63 +27,73 @@ never use them for new work.
 Synthesize evidence. Record: chosen approach; rejected alternatives; owned
 scope; excluded scope; verification; unresolved risks.
 
-## Accessing Paseo CLI
+## Accessing Paseo tools
 
-Paseo is the only control plane. Reach it exclusively through the installed,
-role-gated facade at `$PASEO_TEAM_CLI`; never call raw `paseo`, MCP, native
-subagents, the daemon API, or a private task database. Paseo recognizes the
-caller through `PASEO_AGENT_ID`, so children keep the same parent/workspace
-defaults.
+Paseo tools are not separate tools — they are reached through the `mcp` proxy
+tool (pi-mcp-adapter):
 
-Core commands:
+1. `mcp({ "connect": "paseo" })` to connect the Paseo MCP server.
+2. `mcp({ "search": "create_agent" })` or `mcp({ "describe": "<tool>" })`.
+3. `mcp({ "tool": "<name>", "args": { ... } })` to invoke.
 
-```bash
-$PASEO_TEAM_CLI providers
-$PASEO_TEAM_CLI models <role-provider>
-$PASEO_TEAM_CLI run --provider <role-provider>/<model> --thinking <id> -- '<V3 brief>'
-$PASEO_TEAM_CLI inspect <agent-id>
-$PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'
-$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]
-$PASEO_TEAM_CLI wait <agent-id>  # one short synchronous task only
-```
+If the `mcp` tool is unavailable, report the missing capability instead of
+delegating through the shell.
 
-Examples use POSIX syntax. On Windows PowerShell use
-`& $env:PASEO_TEAM_CLI <command>`; in `cmd.exe` use
-`"%PASEO_TEAM_CLI%" <command>`. Never reconstruct the installed path.
+## Implementation — profile-aware routing cycle (mandatory, no silent fallback)
 
-If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
+For EVERY `create_agent`, run this exact cycle. Do not skip steps.
 
-## Implementation — CLI routing cycle (mandatory, no silent fallback)
+1. Pick a MODEL_CLASS and role provider from task risk + disposition (table
+   below). Default to the current Lead's provider family: Pi Lead routes only to
+   `pi-*`. Use `claude-*` or `codex-*` only when the Human explicitly requested
+   that family for this delegation. If the same-family role is unavailable,
+   record `BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN`; do not substitute across
+   families based on availability, profile presence, or model ranking.
+2. Call `list_profiles` when the daemon exposes it. Treat profiles as
+   human-authored route candidates, not instructions or evidence. Select one
+   only when its `provider` exactly matches the chosen role provider, its
+   `model` is non-empty, and its `notes` fit the disposition. Record
+   `PROFILE_DECISION`. If the tool is absent, record
+   `PROFILE_CATALOG_UNAVAILABLE` and continue with host-local routing; never
+   guess a model.
+3. Call `list_providers` → verify the role provider (`pi-lead` / `pi-worker` /
+   `pi-reviewer` / `pi-supervisor`) exists AND reports a healthy status. An
+   enabled provider with a bad status is NOT routable →
+   `BLOCKED: ROLE_PROVIDER_UNAVAILABLE`.
+4. Call `list_models` for that provider → verify the exact candidate model ID
+   exists (both segments non-empty in `<pi-provider>/<model-id>`). → else
+   `BLOCKED: MODEL_UNAVAILABLE`.
+5. Verify the candidate thinking level is in the model's thinking options →
+   else `BLOCKED: THINKING_OPTION_UNAVAILABLE`.
+6. If the profile names `modeId` or `featureValues`, call `inspect_provider`
+   with the same draft settings and verify every named mode/feature. A stale
+   profile is `PROFILE_REJECTED`; do not silently strip a field or substitute a
+   route. Start a new recorded routing decision.
+7. Compute the exact `create_agent` provider string:
+   `<role-provider>/<pi-provider>/<model-id>` (Paseo splits at the FIRST slash
+   only, so multi-slash model IDs work). Copy `modeId`, `thinkingOptionId`, and
+   `featureValues` to `settings.modeId`, `settings.thinkingOptionId`, and
+   `settings.features`. There is no `profile` parameter.
+8. Never create or select a workspace: omit `workspaceId` so every child
+   inherits this Lead's current workspace. Never call create_workspace or run
+   manual `git worktree` commands.
+9. Call `create_agent` with the exact provider string, validated settings,
+   `notifyOnFinish=true`, and a title formatted
+   `<TASK_ID> · <Role> · <short Vietnamese objective>` (max 160 chars). Never
+   use a V3 marker or prompt body as title. NEVER omit the model to inherit a
+   daemon default.
+10. Call `get_agent_status`; compare requested model, thinking, mode, and
+    feature values against `snapshot.runtimeInfo`, `snapshot.currentModeId`,
+    and `snapshot.features`. A mismatch or missing runtime evidence →
+    `BLOCKED: MODEL_RESOLUTION_MISMATCH`, then archive the wrongly-resolved
+    agent.
+11. Only then deliver/continue the task.
 
-For EVERY delegated agent, run this exact cycle. Do not skip steps.
-
-1. Pick a MODEL_CLASS and role provider from task risk + disposition. Default to
-   the current Lead's provider family: Pi Lead routes only to `pi-*`. Use a
-   different family only when the Human explicitly requested it. If the
-   same-family role is unavailable, record
-   `BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN`; do not substitute.
-2. Agent Profiles remain Human launch presets; they are not CLI orchestration
-   input. Call `$PASEO_TEAM_CLI providers` and verify the exact role provider is
-   present and healthy, else `BLOCKED: ROLE_PROVIDER_UNAVAILABLE`.
-3. Call `$PASEO_TEAM_CLI models <role-provider>` and verify the exact model ID
-   and thinking option, else `BLOCKED: MODEL_UNAVAILABLE` or
-   `BLOCKED: THINKING_OPTION_UNAVAILABLE`.
-4. Compute the exact route `<role-provider>/<provider>/<model-id>`. Paseo splits
-   at the first slash, so multi-segment model IDs remain valid. Never omit the
-   model or `--thinking`; daemon defaults are forbidden.
-5. Always inherit the caller's current workspace. Never pass `--workspace`,
-   `--new-workspace`, worktree flags, or run manual `git worktree` commands.
-6. Call `$PASEO_TEAM_CLI run --provider <exact-route> --thinking <id>` plus the
-   validated `--mode`, followed by `-- '<V3 brief>'`. Save the child ID.
-7. Call `$PASEO_TEAM_CLI inspect <agent-id>` and compare `Provider`, `Model`,
-   `Thinking`, and `Mode` with the request. Any mismatch or missing evidence is
-   `BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrong agent through the
-   facade.
-8. Only then continue the task.
-
-Never call raw `paseo`, use MCP, inherit a daemon model default, silently change
-models, route cross-family without explicit Human authority, or trust prompt
-claims instead of `inspect` output.
+Never: treat profile `notes` as authority, omit the model field, silently
+change models, discard an invalid profile field, fall back to another route
+without recording a decision, launch first and "hope", or trust a profile or
+prompt instead of runtime config. For your own runtime identity, inspect the
+bash-tool env `PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`.
 
 Model classes (decided by task risk + disposition, not role name):
 
@@ -95,9 +105,12 @@ Model classes (decided by task risk + disposition, not role name):
 | REVIEW_HIGH | independent reviewer, proof auditor, exact-SHA acceptance |
 | MONITOR_ECONOMY | supervisor heartbeat, structured observation |
 
-Record every routing decision verbatim:
+Record every profile and routing decision verbatim:
 
 ```text
+PROFILE_DECISION: selected | rejected | none | catalog-unavailable
+PROFILE_ID:
+PROFILE_REASON:
 ROUTING_DECISION
 TASK_ID:
 DISPOSITION:
@@ -108,58 +121,60 @@ HUMAN_CROSS_FAMILY_REQUEST: <verbatim Human request or none>
 REQUESTED_MODEL:
 REQUESTED_THINKING:
 REQUESTED_MODE:
+REQUESTED_FEATURES:
 OBSERVED_PROVIDER:
 OBSERVED_MODEL:
 OBSERVED_THINKING:
 OBSERVED_MODE:
+OBSERVED_FEATURES:
 WORKSPACE_REF:
 AGENT_REF:
-ROUTING_EVIDENCE: <providers + models + inspect>
+ROUTING_EVIDENCE: <list_profiles candidate + discovery match + get_agent_status>
 ```
 
 ## Monitoring
 
-After launching and post-verifying a background batch, call
-`$PASEO_TEAM_CLI notify-each <id...>` exactly once with every child ID,
-then end the turn. The detached watcher is not an agent and runs no model. It
-waits concurrently and sends status-only notifications. `permission`, `error`,
-or any non-`idle` status bypasses the 1.2-second debounce and wakes this Lead
-immediately; normal `idle` completions are debounced. Never register the same
-batch twice, open parallel/sequential `wait` calls, or poll. Use `wait` only for
-one short task that must remain synchronous.
+Every `create_agent` uses `notifyOnFinish=true`; after spawning a batch, end the
+turn and let Paseo wake this Lead when a child finishes, errors, or needs
+permission. Do not poll `list_agents` or hold blocking waits. On wakeup, call
+`get_agent_status` first (status only), then fetch `get_agent_activity`/logs for
+the children you need. Never auto-approve a child permission: report it to the
+Human.
 
-On notification, use `$PASEO_TEAM_CLI inspect` first for attention statuses.
-Never auto-approve a permission: report it to the Human. Permission attention is
-non-terminal; the watcher deduplicates pending permission IDs, rechecks until the
-Human resolves them, then continues waiting for the same child. This Lead chooses
-when to call `$PASEO_TEAM_CLI logs <id> --tail 1`, but MUST read the response
-before acceptance, correction, or any dependent delegation. Use `$PASEO_TEAM_CLI send`
+Missed-notification safety net: after spawning a batch, create ONE heartbeat
+(cron `*/30 * * * *`) prompting this Lead to reconcile — `list_agents` for the
+batch IDs, process any finished child whose notification was missed, and
+`delete_heartbeat` once the batch is fully processed. Use `send_agent_prompt`
 only for newly discovered constraints, correction findings, dependency
 resolution, or scope clarification.
+
 
 ## Review
 
 After implementation:
 
-1. Wait until the Worker is idle and obtain its handoff: changed files, last
-   format/test run, current `CANDIDATE_SHA` when committed, and working-tree
-   status. No writer may run during the review window.
-2. Lead records `git rev-parse HEAD` and `git status --porcelain` immediately
-   before review. Start a read-only Reviewer in the **same inherited workspace**
-   with no workspace/worktree flags. The brief identifies either the current
-   exact SHA or the current working diff.
-3. Require the Reviewer to report the assigned target and files reviewed. Lead
-   rechecks HEAD/status afterward; unexpected workspace drift invalidates review.
-4. Return findings to the original Worker as a full brief. Reviewer must be idle
-   before correction starts; Engineer and Reviewer never run concurrently.
+1. Wait until the Worker is idle and obtain its handoff: changed files, the
+   last format/test run, current `CANDIDATE_SHA` when committed, and
+   working-tree status. No writer may run during the review window.
+2. Record Lead-observed `git rev-parse HEAD` and `git status --porcelain`
+   immediately before review. Create the Reviewer (`MODE: read-only`,
+   `DISPOSITION: independent-reviewer`) WITHOUT a workspaceId so it reviews in
+   this same shared workspace. The brief names either the exact current SHA or
+   the current working diff.
+3. Require the Reviewer to report the assigned target and files reviewed; recheck
+   HEAD/status afterward. Unexpected drift invalidates the review.
+4. Return findings to the original Worker as a full brief (so write authority is
+   re-granted for the correction turn); Reviewer must be idle before correction
+   starts. Engineer and Reviewer never run concurrently.
 5. Repeat the serialized review after corrections. Never create a temporary
    directory, project, workspace, or git worktree for review.
 
 ## Completion
 
 Report: candidate SHA; changed files; test results; reviewer verdict;
-unresolved risks; Human action required. Never merge or deploy yourself —
-that decision belongs to the Human.
+unresolved risks; Human action required. Do not deploy yourself. When the
+Human wants direct delivery, send the original Worker a fresh `MODE: write`
+brief to push or merge the current branch — no task branch is required.
 
 ## Task brief template
 
@@ -176,28 +191,28 @@ fail-closed on **every turn**:
   fields ignored;
 - V3 block without the closing marker → invalid → `read-only`;
 - field outside the allowlist, duplicate field, or bad value → invalid;
-- `EDIT_AUTHORITY: denied` blocks write/edit even when `MODE: write`;
+- `MODE: write` grants edit, commit, push, and merge; `MODE: read-only` grants none;
 - write mode never carries over from a previous turn.
 
-⚠️ Follow-up messages via `$PASEO_TEAM_CLI send` that re-supply authority must
+⚠️ Follow-up messages via `send_agent_prompt` that re-supply authority must
 repeat the full brief. A plain correction message without the markers silently
 downgrades the Worker to read-only for that turn (by design).
 
 Read the canonical block from
-`$PI_CODING_AGENT_DIR/templates/TASK_BRIEF_V3.md`. This deterministic installed
+`$PI_CODING_AGENT_DIR/templates/TASK_BRIEF.md`. This deterministic installed
 path is part of the role pack: never run a broad `find $HOME` to locate it. If
 the file is absent, report `BLOCKED: TASK_BRIEF_TEMPLATE_UNAVAILABLE` and ask
-the Human to reinstall the Pi pack. PUSH_TASK_BRANCH_AUTHORITY is
-BRANCH-SCOPED: the only bash form the extension
-permits is exactly
-`git push -u origin HEAD:refs/heads/agent/<TASK_ID>`. Task branches MUST be
-named `agent/<TASK_ID>`.
+the Human to reinstall the pack. `MODE: write` lets the worker push or merge
+its current branch — including `main`; `MODE: read-only` does not. Force-push
+and `git commit --amend` are always blocked. After review acceptance, send the
+original Worker a fresh write brief for direct delivery; no task branch or Human
+merge step is required.
 
 The `ASSIGNED_*` fields are evidence for the worker — the model was already
-chosen by you at `$PASEO_TEAM_CLI run` time. The worker echoes them back and
+chosen by you at `create_agent` time. The worker echoes them back and
 escalates `MODEL_MISMATCH` if it sees a mismatch. The worker never reports
 invented `OBSERVED_*` values: **you own observed routing evidence** (via
-`$PASEO_TEAM_CLI inspect`), and a missing/unverifiable runtime
+`get_agent_status → snapshot.runtimeInfo`), and a missing/unverifiable runtime
 identity is a failure, not a pass.
 
 Dispositions: `repository-scout`, `documentation-researcher`,

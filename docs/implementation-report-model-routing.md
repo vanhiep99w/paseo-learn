@@ -1,7 +1,4 @@
-# Implementation Report — Model Routing Role Pack (2026-08-04, historical MCP design)
-
-> Historical record only. Active packs now use the role-gated `paseo-team` CLI
-> facade; see `wiki/architecture.md` and `docs/model-routing.md`.
+# Implementation Report — Model Routing Role Pack (2026-08-04)
 
 ```text
 IMPLEMENTATION_REPORT

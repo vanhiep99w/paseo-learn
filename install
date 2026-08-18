@@ -1,5 +1,152 @@
 #!/usr/bin/env bash
-# POSIX convenience wrapper. The cross-platform dispatcher lives in install.mjs.
+#
+# ./install — single entry point for the Paseo role pack installers.
+#
+# Run directly (no `node` needed):
+#   ./install                 # interactive prompt (codex / pi / claude / all)
+#   ./install pi              # Pi role pack only
+#   ./install codex           # Codex role pack only
+#   ./install claude          # Claude Code role pack only
+#   ./install all             # all three, Codex first (stops on first failure)
+#   ./install pi --dry-run    # preview only, write nothing
+#   ./install all --force     # overwrite differing files (backs up first)
+#   ./install --help
+#
+# Each pack keeps its own installer inside its folder:
+#   codex-orchestration/install.mjs
+#   pi-orchestration/install.mjs
+#   claude-orchestration/install.mjs
+# This script only parses the choice and forwards flags to the right one.
+
 set -euo pipefail
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-exec node "$script_dir/install.mjs" "$@"
+
+script_path="${BASH_SOURCE[0]:-$0}"
+dir="$(cd "$(dirname "$(realpath -m "$script_path" 2>/dev/null || echo "$script_path")")" && pwd)"
+
+codex_installer="$dir/codex-orchestration/install.mjs"
+pi_installer="$dir/pi-orchestration/install.mjs"
+claude_installer="$dir/claude-orchestration/install.mjs"
+
+usage() {
+	cat <<'EOF'
+Usage:
+  ./install [codex|pi|claude|all] [--dry-run] [--force]
+
+Targets:
+  codex   Install the Codex role pack only.
+  pi      Install the Pi role pack only.
+  claude  Install the Claude Code role pack only.
+  all     Install all three (Codex, Pi, then Claude). Stops on first failure.
+  (none)  Interactive prompt.
+
+Flags (passed through to the chosen installer):
+  --dry-run   Preview every change; write nothing.
+  --force     Overwrite files that differ (backs them up first).
+  -h, --help  Show this help.
+EOF
+}
+
+if ! command -v node >/dev/null 2>&1; then
+	echo "install: node is not on PATH (installers are Node scripts)" >&2
+	exit 127
+fi
+
+# Split argv into a target word and the pass-through flags.
+target=""
+flags=()
+for arg in "$@"; do
+	case "$arg" in
+		-h|--help) usage; exit 0 ;;
+		--dry-run|--force) flags+=("$arg") ;;
+		-*) echo "install: unknown flag $arg" >&2; usage; exit 2 ;;
+		*)
+			if [[ -z "$target" ]]; then
+				target="$arg"
+			else
+				echo "install: unexpected extra argument '$arg'" >&2; exit 2
+			fi
+			;;
+	esac
+done
+
+# Interactive chooser when no target given.
+if [[ -z "$target" ]]; then
+	echo ""
+	echo "  Paseo role pack installer"
+	echo "  Choose a pack:"
+	echo "    1) codex   Codex role pack (codex-orchestration)"
+	echo "    2) pi      Pi role pack (pi-orchestration)"
+	echo "    3) claude  Claude Code role pack (claude-orchestration)"
+	echo "    4) all     all three packs (Codex, Pi, then Claude)"
+	echo ""
+	PS3="Select [1-4]: "
+	select choice in "codex" "pi" "claude" "all"; do
+		case "$choice" in
+			codex|pi|claude|all) target="$choice"; break ;;
+			*) echo "  invalid choice, try again" ;;
+		esac
+	done
+fi
+
+# Resolve the ordered list of packs to run.
+case "$target" in
+	codex) packs=("codex") ;;
+	pi) packs=("pi") ;;
+	claude) packs=("claude") ;;
+	all) packs=("codex" "pi" "claude") ;;
+	*) echo "install: unknown target '$target' (use codex|pi|claude|all)" >&2; exit 2 ;;
+esac
+
+run_pack() {
+	local key="$1"
+	local script
+	case "$key" in
+		codex) script="$codex_installer" ;;
+		pi) script="$pi_installer" ;;
+		claude) script="$claude_installer" ;;
+	esac
+	echo ""
+	echo "▶ Installing $key role pack"
+	if [[ ! -f "$script" ]]; then
+		echo "  missing installer: $script" >&2
+		return 1
+	fi
+	# Pass flags only when present: "${flags[@]:-}" would inject a stray empty
+	# string argument when the array is empty, which the installers reject.
+	if [[ ${#flags[@]} -gt 0 ]]; then
+		node "$script" "${flags[@]}"
+	else
+		node "$script"
+	fi
+}
+
+# Run each pack; stop on first failure (matters for `all`).
+declare -A result=()
+overall=0
+for key in "${packs[@]}"; do
+	if run_pack "$key"; then
+		result["$key"]="ok"
+	else
+		result["$key"]="failed"
+		overall=1
+		break
+	fi
+done
+
+echo ""
+echo "Summary:"
+for key in "${packs[@]}"; do
+	printf "  %s: %s\n" "$key" "${result[$key]:-skipped}"
+done
+if [[ $overall -ne 0 && ${#packs[@]} -gt 1 ]]; then
+	echo "Stopped before later pack(s) because a prior step failed."
+fi
+
+if [[ $overall -eq 0 && " ${flags[*]:-} " != *" --dry-run "* ]]; then
+	echo ""
+	echo "Paseo daemon was NOT restarted."
+	echo "Finish active agents, then: paseo daemon restart"
+	echo "Verify with: paseo provider ls --json"
+fi
+
+exit $overall

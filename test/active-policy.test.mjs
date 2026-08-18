@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-	existsSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -17,11 +16,11 @@ import {
 } from "../claude-orchestration/shared/paseo-team-policy/brief.mjs";
 import {
 	blockReasonForTool,
+	createAgentTitleBlockReason,
 	callsGitWorktreeMutation,
-	callsPaseoCli,
-	callsPaseoTeamCli,
+	LEAD_ALLOWED_MCP_TARGETS,
 	ownedScopeBlockReason,
-	safeSupervisorCliCommand,
+	SUPERVISOR_ALLOWED_MCP_TARGETS,
 } from "../claude-orchestration/shared/paseo-team-policy/policy.mjs";
 
 const repo = path.resolve(import.meta.dirname, "..");
@@ -35,7 +34,7 @@ function brief(scope = "src") {
 		`OWNED_SCOPE: ${scope}`,
 		"EDIT_AUTHORITY: allowed",
 		"COMMIT_AUTHORITY: denied",
-		"PUSH_TASK_BRANCH_AUTHORITY: denied",
+		"PUSH_AUTHORITY: denied",
 		"FORCE_PUSH_AUTHORITY: denied",
 		"MERGE_AUTHORITY: denied",
 		"DEPLOY_AUTHORITY: denied",
@@ -91,50 +90,73 @@ assert.equal(
 	null,
 );
 
-// Active orchestration is CLI-only. Injected MCP fails closed, raw shell is
-// blocked, and Supervisor shell access is limited to a simple facade call.
-assert.match(
-	blockReasonForTool("lead", null, "mcp__paseo__list_agents", {}, repo),
-	/CLI-only/,
+// Profile discovery belongs to Lead only; Supervisor remains on the minimal
+// five-tool monitoring/recovery contract across all hard-policy packs.
+assert.ok(LEAD_ALLOWED_MCP_TARGETS.includes("list_profiles"));
+assert.equal(
+	blockReasonForTool("lead", null, "mcp__paseo__list_profiles", {}, repo),
+	null,
 );
 assert.match(
-	blockReasonForTool("supervisor", null, "mcp__paseo__list_agents", {}, repo),
-	/CLI-only/,
+	createAgentTitleBlockReason({ provider: "claude-worker/model", initialPrompt: "PASEO_TEAM_TASK_V3_BEGIN" }),
+	/non-empty title/,
 );
+assert.match(
+	createAgentTitleBlockReason({ title: "PASEO_TEAM_TASK_V3_BEGIN", provider: "claude-worker/model" }),
+	/not a PASEO_TEAM_TASK_V3 marker/,
+);
+assert.equal(
+	createAgentTitleBlockReason({ title: "T-1730 · Worker · Viết retry pattern", provider: "claude-worker/model" }),
+	null,
+);
+assert.match(
+	blockReasonForTool("lead", null, "mcp__paseo__create_agent", { provider: "claude-worker/model" }, repo),
+	/non-empty title/,
+);
+const piPolicySource = readFileSync(
+	path.join(repo, "pi-orchestration", "shared", "paseo-team-policy.ts"),
+	"utf8",
+);
+assert.match(piPolicySource, /discovery:\s*\["list_profiles",/);
+assert.match(piPolicySource, /GIT_WORKTREE_MUTATION_RE/);
+assert.match(piPolicySource, /createAgentTitleBlockReason/);
 assert.equal(callsGitWorktreeMutation("git worktree add --detach /tmp/review HEAD"), true);
 assert.equal(callsGitWorktreeMutation("git worktree list"), false);
 assert.match(
 	blockReasonForTool("lead", null, "Bash", { command: "git worktree add /tmp/review HEAD" }, repo),
 	/Workspace\/worktree mutation is disabled/,
 );
-assert.equal(callsPaseoCli("$PASEO_CLI run task"), true);
-assert.equal(callsPaseoCli("\"$PASEO_CLI\" run task"), true);
-assert.equal(callsPaseoCli("& $env:PASEO_CLI run task"), true);
-assert.equal(callsPaseoCli("%PASEO_CLI% run task"), true);
-assert.equal(callsPaseoTeamCli("$PASEO_TEAM_CLI inspect abc"), true);
-assert.equal(callsPaseoTeamCli("\"$PASEO_TEAM_CLI\" inspect abc"), true);
-assert.equal(callsPaseoTeamCli("& $env:PASEO_TEAM_CLI inspect abc"), true);
-assert.equal(callsPaseoTeamCli("\"%PASEO_TEAM_CLI%\" inspect abc"), true);
-assert.equal(callsPaseoTeamCli("C:\\Paseo\\bin\\paseo-team.cmd inspect abc"), true);
-assert.equal(safeSupervisorCliCommand("$PASEO_TEAM_CLI inspect abc"), true);
-assert.equal(safeSupervisorCliCommand("& $env:PASEO_TEAM_CLI inspect abc"), true);
-assert.equal(safeSupervisorCliCommand("$PASEO_TEAM_CLI inspect abc; rm -rf x"), false);
-assert.equal(
-	blockReasonForTool("supervisor", null, "Bash", { command: "$PASEO_TEAM_CLI inspect abc" }, repo),
-	null,
+assert.deepEqual(SUPERVISOR_ALLOWED_MCP_TARGETS, [
+	"list_agents",
+	"get_agent_status",
+	"get_agent_activity",
+	"send_agent_prompt",
+	"create_agent",
+]);
+const piSupervisor = JSON.parse(readFileSync(
+	path.join(repo, "pi-orchestration", "profiles", "supervisor", "mcp.json"),
+	"utf8",
+));
+assert.deepEqual(
+	new Set(piSupervisor.mcpServers.paseo.includeTools),
+	new Set(SUPERVISOR_ALLOWED_MCP_TARGETS),
 );
-assert.match(
-	blockReasonForTool("supervisor", null, "Bash", { command: "git status" }, repo),
-	/restricted/,
-);
-const piPolicySource = readFileSync(
-	path.join(repo, "pi-orchestration", "shared", "paseo-team-policy.ts"),
+const codexLauncher = readFileSync(
+	path.join(repo, "codex-orchestration", "bin", "codex-role-app-server"),
 	"utf8",
 );
-assert.match(piPolicySource, /allow: \["read", "bash"\]/);
-assert.match(piPolicySource, /GIT_WORKTREE_MUTATION_RE/);
-assert.equal(existsSync(path.join(repo, "pi-orchestration", "profiles", "lead", "mcp.json")), false);
-assert.equal(existsSync(path.join(repo, "pi-orchestration", "profiles", "supervisor", "mcp.json")), false);
+for (const tool of SUPERVISOR_ALLOWED_MCP_TARGETS) assert.match(codexLauncher, new RegExp(`"${tool}"`));
+for (const extra of [
+	"speak",
+	"list_workspaces",
+	"list_profiles",
+	"list_providers",
+	"list_models",
+	"inspect_provider",
+	"list_pending_permissions",
+]) {
+	assert.doesNotMatch(codexLauncher, new RegExp(`"${extra}"`));
+}
 
 // UserPromptSubmit must replace authority each turn and block malformed state events.
 const stateTmp = mkdtempSync(path.join(tmpdir(), "paseo-state-"));
@@ -218,18 +240,13 @@ assert.equal(
 );
 assert.equal(readFileSync(stablePolicy, "utf8"), readFileSync(path.join(repo, "pi-orchestration", "shared", "paseo-team-policy.ts"), "utf8"));
 assert.equal(
-	readFileSync(path.join(installHome, ".pi-paseo", "lead", "templates", "TASK_BRIEF_V3.md"), "utf8"),
-	readFileSync(path.join(repo, "pi-orchestration", "templates", "TASK_BRIEF_V3.md"), "utf8"),
+	readFileSync(path.join(installHome, ".pi-paseo", "lead", "templates", "TASK_BRIEF.md"), "utf8"),
+	readFileSync(path.join(repo, "pi-orchestration", "templates", "TASK_BRIEF.md"), "utf8"),
 );
 const installedConfig = JSON.parse(
 	readFileSync(path.join(installPaseoHome, "config.json"), "utf8"),
 );
 assert.equal(installedConfig.daemon.agentProfiles[0].id, "human:keep");
-assert.equal(installedConfig.daemon.mcp.enabled, undefined);
-assert.equal(installedConfig.daemon.mcp.injectIntoAgents, false);
-assert.equal(installedConfig.agents.providers["pi-lead"].command[0], "pi");
-assert.match(installedConfig.agents.providers["pi-lead"].env.PASEO_TEAM_CLI, /paseo-team$/);
-assert.ok(existsSync(path.join(installPaseoHome, "bin", "paseo-team")));
 const piManagedProfiles = installedConfig.daemon.agentProfiles.filter((profile) =>
 	profile.id.startsWith("paseo-learn:pi:"),
 );

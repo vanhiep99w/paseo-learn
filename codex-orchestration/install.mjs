@@ -3,7 +3,6 @@
 import {
 	chmod,
 	copyFile,
-	link,
 	lstat,
 	mkdir,
 	readFile,
@@ -35,9 +34,7 @@ if (unknown.length) {
 // directory and profiles/ + bin/ sit next to it.
 const packRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceProfiles = path.join(packRoot, "profiles");
-const sourceTeamCli = path.join(packRoot, "bin", "paseo-team");
-const sourceTeamCliCmd = path.join(packRoot, "bin", "paseo-team.cmd");
-const isWindows = process.platform === "win32";
+const sourceLauncher = path.join(packRoot, "bin", "codex-role-app-server");
 const sourcePolicy = path.join(packRoot, "shared", "paseo-team-policy");
 const sourcePolicyManifest = path.join(sourcePolicy, "hooks.json");
 const codexHome = path.resolve(
@@ -51,13 +48,7 @@ const rolesHome = path.resolve(
 		path.join(homedir(), ".codex-paseo"),
 );
 const paseoBin = path.join(paseoHome, "bin");
-const targetTeamCliScript = path.join(
-	paseoBin,
-	isWindows ? "paseo-team.mjs" : "paseo-team",
-);
-const targetTeamCli = isWindows
-	? path.join(paseoBin, "paseo-team.cmd")
-	: targetTeamCliScript;
+const targetLauncher = path.join(paseoBin, "codex-role-app-server");
 const paseoConfigPath = path.join(paseoHome, "config.json");
 const preferencesPath = path.join(
 	paseoHome,
@@ -86,11 +77,11 @@ function providerConfig() {
 			label: "Codex Lead",
 			description:
 				"Full-access orchestration owner governed by developer instructions",
-			command: ["codex"],
+			command: [targetLauncher],
 			env: {
 				CODEX_HOME: path.join(rolesHome, "lead"),
+				PASEO_MCP_ACCESS: "lead",
 				PASEO_CODEX_ROLE: "lead",
-				PASEO_TEAM_CLI: targetTeamCli,
 			},
 		},
 		"codex-worker": {
@@ -99,7 +90,7 @@ function providerConfig() {
 			description:
 				"Full-access implementation agent bounded by its Task Brief",
 			command: ["codex"],
-			env: { CODEX_HOME: path.join(rolesHome, "worker"), PASEO_CODEX_ROLE: "worker", PASEO_TEAM_CLI: targetTeamCli },
+			env: { CODEX_HOME: path.join(rolesHome, "worker"), PASEO_CODEX_ROLE: "worker" },
 		},
 		"codex-reviewer": {
 			extends: "codex",
@@ -107,27 +98,27 @@ function providerConfig() {
 			description:
 				"Full-access runtime with behaviorally read-only review instructions",
 			command: ["codex"],
-			env: { CODEX_HOME: path.join(rolesHome, "reviewer"), PASEO_CODEX_ROLE: "reviewer", PASEO_TEAM_CLI: targetTeamCli },
+			env: { CODEX_HOME: path.join(rolesHome, "reviewer"), PASEO_CODEX_ROLE: "reviewer" },
 		},
 		"codex-supervisor": {
 			extends: "codex",
 			label: "Codex Supervisor",
 			description:
 				"Full-access governance observer with instruction-gated recovery",
-			command: ["codex"],
+			command: [targetLauncher],
 			env: {
 				CODEX_HOME: path.join(rolesHome, "supervisor"),
+				PASEO_MCP_ACCESS: "supervisor",
 				PASEO_CODEX_ROLE: "supervisor",
-				PASEO_TEAM_CLI: targetTeamCli,
 			},
 		},
 	};
 }
 
 const obsoletePreferences = [
-	"Use codex-lead for decomposition and acceptance, codex-worker for bounded writes in the current workspace, and codex-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+	"Use only the role-gated `paseo-team` facade for orchestration. Do not call raw `paseo`, MCP, native subagents, or a private task database.",
+	"Agent Profiles remain Human launch presets; CLI orchestration does not infer routes from them. Discover provider/model/thinking availability with `paseo-team providers` and `paseo-team models`, pin every value on `paseo-team run`, and post-verify with `paseo-team inspect`. Never silently fall back.",
 	"Use the current Paseo workspace by default. Never create a new workspace or worktree unless the Human explicitly requests it. Keep at most one active writer in a shared workspace. Do not use codex-supervisor in ordinary single-task flows.",
-	"When list_profiles is available, treat a complete profile whose provider matches the chosen codex role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
 ];
 
 const defaultPreferences = {
@@ -139,17 +130,26 @@ const defaultPreferences = {
 		audit: "codex-reviewer/gpt-5.6-luna",
 	},
 	preferences: [
-		"Use codex-lead for decomposition and acceptance, codex-worker for bounded writes, and codex-reviewer for serialized read-only review after the writer is idle. All roles inherit the same current workspace.",
+		"Use codex-lead for decomposition and acceptance, codex-worker for bounded writes in the current workspace, and codex-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
 		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Codex Lead routes to codex-* role providers. Use pi-* or claude-* only when the Human explicitly requests that provider family for the delegation. If the required Codex role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
-		"Agent Profiles remain Human launch presets; CLI orchestration does not infer routes from them. Discover provider/model/thinking availability with `paseo-team providers` and `paseo-team models`, pin every value on `paseo-team run`, and post-verify with `paseo-team inspect`. Never silently fall back.",
-		"Use only the role-gated `paseo-team` facade for orchestration. Do not call raw `paseo`, MCP, native subagents, or a private task database.",
+		"When list_profiles is available, treat a complete profile whose provider matches the chosen codex role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
 		"For impl and ui agents, use codex-worker/gpt-5.6-luna with thinkingOptionId max. Luna max is the required default, not an optional downgrade.",
 		"For research and audit agents, use codex-reviewer/gpt-5.6-luna with thinkingOptionId max. Luna max is the required Reviewer default, not an optional downgrade.",
 		"Discover provider/model availability on the target Paseo daemon before creating an agent. Never silently fall back.",
-		"Every subagent must inherit the Lead current workspace. Never pass workspace/worktree placement flags, call workspace management, or run manual git worktree commands. Serialize Engineer and Reviewer; keep at most one active writer. Do not use codex-supervisor in ordinary single-task flows.",
+		"Every subagent must inherit the Lead current workspace. Never pass workspace placement, call create_workspace, or run manual git worktree commands. Serialize Engineer and Reviewer; keep at most one active writer. Do not use codex-supervisor in ordinary single-task flows.",
 	],
 };
+
+async function retireOwnedFile(target, label) {
+	if (!(await exists(target))) return;
+	if (!force) {
+		throw new Error(`Obsolete managed ${label} still exists at ${target}; rerun with --force after review`);
+	}
+	await backup(target);
+	if (!dryRun) await rm(target, { force: true });
+	console.log(`${dryRun ? "would remove" : "removed"}: ${target} (${label})`);
+}
 
 async function readJsonOr(pathname, fallback) {
 	try {
@@ -194,7 +194,7 @@ async function installOwnedFile(source, target, mode) {
 		const targetText = await readFile(target, "utf8");
 		if (targetText === sourceText) {
 			console.log(`unchanged: ${target}`);
-			if (!dryRun && mode && !isWindows) await chmod(target, mode);
+			if (!dryRun && mode) await chmod(target, mode);
 			return;
 		}
 		if (!force) {
@@ -207,19 +207,9 @@ async function installOwnedFile(source, target, mode) {
 	if (!dryRun) {
 		await mkdir(path.dirname(target), { recursive: true });
 		await copyFile(source, target);
-		if (mode && !isWindows) await chmod(target, mode);
+		if (mode) await chmod(target, mode);
 	}
 	console.log(`${dryRun ? "would install" : "installed"}: ${target}`);
-}
-
-async function retireOwnedFile(target, label) {
-	if (!(await exists(target))) return;
-	if (!force) {
-		throw new Error(`Obsolete managed ${label} still exists at ${target}; rerun with --force after review`);
-	}
-	await backup(target);
-	if (!dryRun) await rm(target, { force: true });
-	console.log(`${dryRun ? "would remove" : "removed"}: ${target} (${label})`);
 }
 
 function splitProjectTrustTail(text) {
@@ -283,31 +273,15 @@ async function installAuthLink(roleHome) {
 	const source = path.join(codexHome, "auth.json");
 	const target = path.join(roleHome, "auth.json");
 	if (!(await exists(source))) {
-		console.log(`auth not shared (run codex login first): ${source}`);
+		console.log(`auth not linked (run codex login first): ${source}`);
 		return;
 	}
-	const sourceInfo = await stat(source);
 	try {
 		const info = await lstat(target);
 		if (info.isSymbolicLink()) {
-			const currentLink = await readlink(target);
-			if (path.resolve(roleHome, currentLink) === source) {
+			const link = await readlink(target);
+			if (path.resolve(roleHome, link) === source) {
 				console.log(`unchanged: ${target} -> ${source}`);
-				return;
-			}
-		}
-		if (isWindows && info.isFile()) {
-			const targetInfo = await stat(target);
-			if (targetInfo.dev === sourceInfo.dev && targetInfo.ino === sourceInfo.ino) {
-				console.log(`unchanged hard link: ${target} -> ${source}`);
-				return;
-			}
-			const [sourceBytes, targetBytes] = await Promise.all([
-				readFile(source),
-				readFile(target),
-			]);
-			if (sourceBytes.equals(targetBytes)) {
-				console.log(`unchanged shared copy: ${target} <- ${source}`);
 				return;
 			}
 		}
@@ -317,22 +291,11 @@ async function installAuthLink(roleHome) {
 	} catch (error) {
 		if (error?.code !== "ENOENT") throw error;
 	}
-	let kind = isWindows ? "hard link" : "symlink";
 	if (!dryRun) {
 		await mkdir(roleHome, { recursive: true });
-		if (isWindows) {
-			try {
-				await link(source, target);
-			} catch (error) {
-				if (error?.code !== "EXDEV" && error?.code !== "EPERM") throw error;
-				await copyFile(source, target);
-				kind = "shared copy fallback";
-			}
-		} else {
-			await symlink(source, target);
-		}
+		await symlink(source, target);
 	}
-	console.log(`${dryRun ? `would create ${kind}` : `created ${kind}`}: ${target} -> ${source}`);
+	console.log(`${dryRun ? "would link" : "linked"}: ${target} -> ${source}`);
 }
 
 async function writeJsonAtomic(pathname, value) {
@@ -373,10 +336,9 @@ async function main() {
 		await installOwnedFile(sourcePolicyManifest, path.join(roleHome, "hooks.json"), 0o600);
 		await installOwnedDir(sourcePolicy, path.join(roleHome, "hooks"));
 	}
-	await installOwnedFile(sourceTeamCli, targetTeamCliScript, isWindows ? undefined : 0o755);
-	if (isWindows) await installOwnedFile(sourceTeamCliCmd, targetTeamCli);
-	await retireOwnedFile(path.join(paseoBin, "codex-role-app-server"), "Codex MCP launcher");
-	await retireOwnedFile(path.join(paseoBin, "codex-readonly-app-server"), "Codex compatibility launcher");
+	await installOwnedFile(sourceLauncher, targetLauncher, 0o755);
+	await retireOwnedFile(path.join(paseoBin, "paseo-team"), "CLI-era orchestration facade");
+	await retireOwnedFile(path.join(paseoBin, "paseo-team.cmd"), "CLI-era orchestration launcher");
 
 	const config = await readJsonOr(paseoConfigPath, {
 		$schema: "https://paseo.sh/schemas/paseo.config.v1.json",
@@ -385,6 +347,7 @@ async function main() {
 	config.version ??= 1;
 	config.daemon ??= {};
 	config.daemon.mcp ??= {};
+	config.daemon.mcp.enabled = true;
 	config.daemon.mcp.injectIntoAgents = false;
 	config.agents ??= {};
 	config.agents.providers ??= {};

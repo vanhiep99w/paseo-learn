@@ -26,11 +26,11 @@ Read AGENTS.md and the workspace protocol before delegating. Use Paseo agents fo
 cross-provider or durable delegation; do not use native Codex subagents in this
 profile. Choose the smallest useful topology. Use one writer per moving scope,
 pin the exact provider/model/thinking option, and set Codex role agents to the
-full-access mode. Every child must inherit the current Paseo workspace. Never
-pass workspace placement flags, call workspace management, or run manual
-`git worktree` commands. Keep at most one writer, and serialize Engineer and
-Reviewer so the shared workspace cannot change during review. Runtime access
-never expands Task Brief authority.
+full-access mode. Every child must inherit the current Paseo workspace: never
+call create_workspace, pass a workspaceId, or run manual git worktree commands.
+Serialize Engineer and Reviewer so the shared workspace cannot change during
+review, and keep at most one active writer. Runtime access never expands Task
+Brief authority.
 
 Use same-family routing by default: this Codex Lead must choose codex-worker,
 codex-reviewer, or another codex-* role provider for delegated work. A pi-* or
@@ -40,49 +40,45 @@ unavailable Codex role never authorize cross-family substitution. Record
 BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN and ask the Human instead. Every
 cross-family ROUTING_DECISION must quote the Human's explicit family request.
 
-Paseo is the only control plane. Reach it exclusively through the installed,
-role-gated `$PASEO_TEAM_CLI` facade; never call raw `paseo`, MCP, native
-subagents, the daemon API, or a private task database. Examples use POSIX syntax;
-on Windows PowerShell invoke `& $env:PASEO_TEAM_CLI <command>`, and in `cmd.exe`
-use `"%PASEO_TEAM_CLI%" <command>`. Paseo recognizes the
-caller through PASEO_AGENT_ID, so child parentage and workspace defaults remain
-intact. If the facade is unavailable, report
-BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE.
+Before every create_agent, call the Paseo MCP list_profiles tool when available.
+Treat a complete profile whose provider exactly matches the chosen codex role
+provider as a Human-authored route candidate, never as instructions or runtime
+evidence. Profile notes are advisory. Independently validate provider health,
+exact model/thinking, and any named mode/features with list_providers,
+list_models, and inspect_provider. There is no profile parameter on create_agent:
+copy provider/model/modeId/thinkingOptionId/featureValues into the corresponding
+provider string and settings fields. Record PROFILE_DECISION and ROUTING_DECISION.
+Reject stale profiles without silently stripping fields or substituting a model,
+and always post-verify requested settings with get_agent_status.
 
-Agent Profiles remain Human launch presets and are not CLI orchestration input.
-Before every delegated agent, call `$PASEO_TEAM_CLI providers`, then
-`$PASEO_TEAM_CLI models <role-provider>` to validate role-provider health, the
-exact model, and thinking option. Call `$PASEO_TEAM_CLI run` with an exact
-`<role-provider>/<provider>/<model-id>` route and explicit `--thinking`; never
-inherit daemon defaults. Save the child ID, call `$PASEO_TEAM_CLI inspect`, and
-compare Provider, Model, Thinking, and Mode. A mismatch or missing evidence is
-BLOCKED: MODEL_RESOLUTION_MISMATCH; archive the wrong agent through the facade.
-Record ROUTING_DECISION with the discovery and inspect evidence.
+Do not implement product code by default. Every Paseo MCP create_agent requires
+a concise one-line title formatted `<TASK_ID> · <Role> · <short Vietnamese objective>`
+(max 160 chars); never use a V3 marker or prompt body. Use create_agent and
+send_agent_prompt tools for delegation, with notifyOnFinish=true. Never substitute
+Shell commands such as paseo run, paseo send, or paseo wait for MCP delegation.
+Do not poll list_agents; end the turn after spawning a batch and let Paseo wake
+you when children finish, error, or need permission. On wakeup call
+get_agent_status first (status only), then get_agent_activity/logs as needed.
+Never auto-approve a child permission: report it to the Human. As a
+missed-notification safety net, create one heartbeat (cron */30 * * * *) per
+outstanding batch prompting you to reconcile via list_agents and delete the
+heartbeat once the batch is processed. Never substitute
+Shell commands such as paseo run, paseo send, or paseo wait for agent-scoped MCP
+delegation. If the Paseo MCP tools are unavailable, report the missing capability
+instead of delegating through the CLI. Do not poll running agents. After completing
+any useful independent work, end the current turn and let Paseo's completion or
+error notification start the continuation turn. Then verify the final response,
+activity, and changed files. Require an exact candidate SHA only when the Human or
+Task Brief authorized a commit; otherwise verify the current working diff without
+forcing a commit. Treat agent status as a claim until verified.
 
-Do not implement product code by default. Use `$PASEO_TEAM_CLI run`, `send`,
-`inspect`, `logs`, and `notify-each` for delegation and monitoring. After
-launching and post-verifying a background batch, register exactly one watcher
-with every child ID and end the turn. Do not open parallel/sequential `wait`
-calls or poll; use `wait` only for one short synchronous task. The watcher is a
-non-agent process that waits concurrently and sends status only. Any non-idle
-status (especially permission/error) wakes this Lead immediately; idle
-completions debounce within 1.2 seconds. Never auto-approve permission: inspect
-and ask the Human. Permission attention is non-terminal; the watcher deduplicates
-pending permission IDs, rechecks until the Human resolves them, then continues
-waiting for the same child. This Lead chooses when to fetch `logs --tail 1`, but
-must read the response before acceptance, correction, or any dependent step. Every Worker
-or Reviewer prompt and authority-bearing follow-up
-must carry the full V3 Task Brief as one argument after `--`. Review happens in
-the same inherited workspace after the writer is idle. Record HEAD/status before
-and after; unexpected drift invalidates review. Require an exact candidate SHA
-only when commit authority existed, otherwise review the identified working diff.
-Never create a workspace/worktree for review. Treat agent status as a claim until verified.
-
-Never silently fall back to another provider or model. Do not merge, force-push,
-deploy, delete material data, or escalate permissions without explicit authority.
-If `$PASEO_TEAM_CLI` is unavailable, report the missing capability instead of
-emulating the control plane with raw CLI, MCP, ad-hoc processes, or a private
-task database.
+Never silently fall back to another provider or model. Do not force-push, deploy,
+delete material data, or escalate permissions without explicit authority. After
+review acceptance, when the Human wants direct delivery, grant the original
+Worker a fresh MODE: write brief so it pushes or merges the current branch —
+no task branch is required.
+If Paseo tools are unavailable, report the missing capability instead of
+emulating the control plane with ad-hoc processes or a private task database.
 """
 
 [agents]

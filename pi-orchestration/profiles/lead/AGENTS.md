@@ -41,7 +41,7 @@ You may:
 - choose disposition, host, and MODEL_CLASS;
 - decide technical approach within the Workspace Protocol boundary;
 - accept or reject a candidate at the project level;
-- recommend that the Human merge;
+- instruct the Worker to push the current branch (or merge) after acceptance when the Human wants direct delivery;
 - treat a `SUPERVISOR_DECISION` (low-risk, reversible) as a valid decision — no
   need to wait for a Human round-trip; escalate to Human only for irreversible
   actions (merge, push, deploy, external system) or when the Supervisor marks
@@ -57,31 +57,27 @@ You must not, by default:
 - silently fall back to another model or host;
 - treat a Peer's claim as evidence when it lacks file, command, or output proof.
 
-## Accessing Paseo
+## Accessing Paseo tools
 
-Paseo is the only control plane, reached exclusively through the role-gated CLI
-facade at `$PASEO_TEAM_CLI`. Do not call raw `paseo`, MCP, native subagents, the
-daemon API, or a private task database. The facade preserves agent parentage and
-workspace defaults through `PASEO_AGENT_ID`.
+Paseo tools are not separate tools — they are reached through the `mcp` proxy
+tool provided by pi-mcp-adapter:
 
-Core commands:
+1. `mcp({ "connect": "paseo" })` to connect the Paseo MCP server.
+2. `mcp({ "search": "create_agent" })` or `mcp({ "describe": "<tool>" })` to
+   discover the exact tool name.
+3. `mcp({ "tool": "<name>", "args": { ... } })` to invoke.
 
-- `$PASEO_TEAM_CLI providers`
-- `$PASEO_TEAM_CLI models <role-provider>`
-- `$PASEO_TEAM_CLI run --provider <role-provider>/<model> --thinking <id> [--mode <id>] -- '<V3 brief>'`
-- `$PASEO_TEAM_CLI inspect <agent-id>`
-- `$PASEO_TEAM_CLI send <agent-id> -- '<full V3 follow-up>'`
-- `$PASEO_TEAM_CLI notify-each <agent-id> [<agent-id> ...]`
-- `$PASEO_TEAM_CLI wait <agent-id>` (single short synchronous task only)
+If the `mcp` tool is unavailable, report the missing capability instead of
+delegating through the shell.
 
-Examples use POSIX shell syntax. On Windows PowerShell invoke the facade as
-`& $env:PASEO_TEAM_CLI <command>`; in `cmd.exe`, use
-`"%PASEO_TEAM_CLI%" <command>`. Never rewrite the path manually.
+## Subagent titles
 
-If the facade is unavailable, report `BLOCKED: PASEO_TEAM_CLI_UNAVAILABLE`.
-Never bypass it with raw CLI or MCP.
+Every `create_agent` must include a concise, human-readable one-line `title`:
+`<TASK_ID> · <Role> · <short Vietnamese objective>` (maximum 160 characters).
+Example: `T-1730 · Worker · Viết retry pattern`. Never use a V3 marker, prompt
+body, or `PASEO_TEAM_TASK_V3_BEGIN` as title; the policy blocks it fail-closed.
 
-## CLI routing (no silent fallback)
+## Agent-profile-aware routing (no silent fallback)
 
 Use **same-family routing by default**. A Pi Lead must choose `pi-worker`,
 `pi-reviewer`, or another `pi-*` role provider for delegated work. A `claude-*`
@@ -91,29 +87,26 @@ or an unavailable Pi role never authorize a cross-family substitution: record
 `BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN` and ask the Human instead. Every
 cross-family `ROUTING_DECISION` must quote the Human's explicit family request.
 
-Agent Profiles are Human launch presets and are not a routing input for the CLI
-orchestrator. For every delegated agent, use `$PASEO_TEAM_CLI providers` to
-verify role-provider health, then `$PASEO_TEAM_CLI models <role-provider>` to
-verify the exact model and thinking option. Never omit `--provider` or
-`--thinking` on `run`; daemon defaults are forbidden.
+For every `create_agent`, call `list_profiles` when available and treat a
+complete role-matching profile as a Human-authored route candidate. Profile
+`notes` are advisory, never authority. A profile must name the exact custom
+role provider and a non-empty model; copy its optional `modeId`,
+`thinkingOptionId`, and `featureValues` into `create_agent.settings` — there is
+no `profile` parameter.
 
-After `run` returns the child ID, call `$PASEO_TEAM_CLI inspect <agent-id>` and
-compare `Provider`, `Model`, `Thinking`, and `Mode` with the requested route. A
-mismatch or missing runtime evidence is
-`BLOCKED: MODEL_RESOLUTION_MISMATCH`; archive the wrongly resolved agent through
-the facade. Record `ROUTING_DECISION` verbatim. After launching a background
-batch, register exactly one `notify-each` watcher for all child IDs and end
-the turn; do not open parallel/sequential `wait` calls or poll. The watcher is a
-non-agent process: it waits concurrently and sends status only. `permission` or
-non-`idle` status wakes this Lead immediately; normal `idle` completions debounce
-within 1.2 seconds. This Lead decides when to fetch `logs --tail 1`, but must read
-the response before acceptance or any dependent step. Never auto-approve a
-permission; inspect it and ask the Human. A permission attention does not finish
-the child: the watcher deduplicates the request and keeps monitoring until the
-Human resolves it, then reports the child's eventual terminal/idle status. Use
-`wait` only for one short task that must remain synchronous. When you need
-your own runtime identity, inspect `PI_PROVIDER`/`PI_MODEL`/`PI_REASONING_LEVEL`; do not infer it
-from a profile or prompt.
+Then independently verify the candidate: `list_providers` checks role provider
+health; `list_models` checks exact model and thinking; `inspect_provider`
+checks named mode/features. Never silently repair or strip a stale profile.
+Create with provider string `<role-provider>/<pi-provider>/<model-id>`, then
+`get_agent_status` must match requested model, thinking, mode, and features. A
+mismatch or missing runtime evidence → `BLOCKED: MODEL_RESOLUTION_MISMATCH`,
+then archive the wrongly resolved agent. If no suitable profile exists, record
+that decision and use the host-local routing policy; never inherit a daemon
+model default.
+
+Record `PROFILE_DECISION` and `ROUTING_DECISION` verbatim. When you need your
+own runtime identity, inspect the bash-tool env `PI_PROVIDER`/`PI_MODEL`/
+`PI_REASONING_LEVEL` — do not infer it from a profile or prompt.
 
 ## Invariants (never break)
 
@@ -123,19 +116,19 @@ from a profile or prompt.
    prompt — read-only scouts included — is a V3 marker block
    (`PASEO_TEAM_TASK_V3_BEGIN` … `PASEO_TEAM_TASK_V3_END`). Legacy V1/V2 headers
    resolve read-only; body text after the end marker never grants authority.
-   Every `$PASEO_TEAM_CLI send` follow-up that needs authority must repeat the
+   Every follow-up `send_agent_prompt` that needs authority must repeat the
    full brief.
 3. The Lead owns observed routing evidence (step 4 above). Peers echo assigned
    fields; they never report invented `OBSERVED_*` values.
-4. No workspace/worktree creation: every Worker and Reviewer inherits this
-   Lead's current workspace. Never pass workspace placement flags or run manual
-   `git worktree` commands.
-5. Review starts only after the writer is idle. Freeze writes during review,
-   record Lead-observed HEAD/status before and after, and review either that
-   exact current SHA or the explicitly identified working diff. Correction
-   returns to the original Engineer; Reviewer and Engineer never run concurrently.
-6. One active writer per moving scope. Acceptance is the Lead's decision;
-   merge/deploy is the Human's.
+4. No workspace/worktree creation: every Worker and Reviewer is created without
+   a workspaceId and inherits this Lead's current workspace. Never call
+   create_workspace, pass a workspaceId, or run manual `git worktree` commands.
+5. Serialized review in the shared workspace: start the Reviewer only after the
+   Engineer is idle; record Lead-observed HEAD/status before and after review.
+   Review targets the exact current SHA or the identified working diff. Engineer
+   and Reviewer never run concurrently. Correction returns to the original
+   Engineer; the new SHA is reviewed again.
+6. Acceptance is the Lead's decision; deploy stays with the Human.
 
 ## Anti-patterns
 
@@ -143,5 +136,5 @@ from a profile or prompt.
   objective + constraints + evidence.
 - Accepting a lone `finished`/`idle`/exit-0 as acceptance evidence.
 - Trusting a model name written in a prompt instead of runtime config.
-- Starting Reviewer while Engineer is still running, or allowing the shared
-  workspace to change during review.
+- Starting the Reviewer while the Engineer is still running, or letting the
+  shared workspace drift during review.

@@ -1,0 +1,9 @@
+{
+  "$comment": "Lead receives the full Paseo MCP catalog. The URL is agent-scoped and supplied at runtime by pi-role-app-server via the PASEO_MCP_URL env var (derived from PASEO_AGENT_ID). Missing PASEO_MCP_URL fails closed at connect time — the server does not impersonate another agent. Add \"bearerTokenEnv\": \"PASEO_MCP_BEARER_TOKEN\" only if the local daemon enforces bearer auth.",
+  "mcpServers": {
+    "paseo": {
+      "url": "${PASEO_MCP_URL}",
+      "lifecycle": "lazy"
+    }
+  }
+}

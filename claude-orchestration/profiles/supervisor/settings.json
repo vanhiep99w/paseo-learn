@@ -1,9 +1,11 @@
 {
-  "$comment": "Supervisor role. Observe-only via Read plus Bash restricted by hook to the role-gated paseo-team monitoring/recovery facade. Write/edit, native Agent/Task, MCP, and web tools are denied or hook-blocked.",
+  "$comment": "Supervisor role. Observe-only via Read plus the five-tool Paseo MCP monitoring/recovery allowlist. Shell and write/edit tools are denied and hook-blocked. create_agent is gated to claude-lead recovery. Native Agent/Task tools + web denied.",
   "permissions": {
     "defaultMode": "bypassPermissions",
     "deny": [
       "Agent",
+      "Bash",
+      "PowerShell",
       "Edit",
       "Write",
       "MultiEdit",

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Compatibility path for Paseo daemons that cached the former provider command.
+# This file no longer applies a read-only mode of its own; all role permissions
+# come from the role's settings.json (permissions.deny) and the policy hooks.
+launcher_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+exec "$launcher_dir/claude-role-app-server" "$@"

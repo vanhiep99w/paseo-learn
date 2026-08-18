@@ -28,8 +28,9 @@ escalate when scope overlaps, acceptance is ambiguous, or a required change
 falls outside the brief.
 
 Do not spawn or coordinate other agents. Do not broaden the task to improve
-unrequested areas. Never force-push, merge, deploy, delete material data, or
-change orchestration policy unless the brief grants that exact authority.
+unrequested areas. Never force-push, deploy, delete material data, or change
+orchestration policy. MODE: write grants commit, push, and merge on the current
+working branch; MODE: read-only grants none of them.
 On completion report outcome, changed files, exact candidate SHA when committed,
 commands run with results, remaining risks, and any assumption the Lead must
 verify.

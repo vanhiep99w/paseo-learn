@@ -23,11 +23,9 @@ into a **governed four-role team**:
 
 Three principles run through everything:
 
-- **Paseo is the only control plane.** Lead/Supervisor reach it through the
-  role-gated `paseo-team` facade over the public Paseo CLI. Every child inherits
-  the Lead's current workspace; workspace/worktree creation and placement are
-  fail-closed. Raw CLI, MCP, provider-native subagents, and second task databases
-  are forbidden.
+- **Paseo is the only control plane.** Agents reach it through the Paseo MCP
+  (`create_agent`, `send_agent_prompt`, `get_agent_status`). There is no
+  second task database.
 - **Capability ≠ authority.** Agents run with full filesystem/network access;
   their *behavior* is bounded by role prompts, tool allowlists, and a fail-closed
   policy layer — not by a sandbox.
@@ -52,15 +50,18 @@ The three active packs implement the **same four-role model with different
 mechanisms** because each CLI exposes configuration differently:
 
 - **Codex** uses per-role `CODEX_HOME` with a `config.toml` (model + sandbox +
-  `developer_instructions`) plus `PreToolUse`/`UserPromptSubmit` hooks. Lead and
-  Supervisor orchestrate through the role-gated `paseo-team` CLI facade.
+  `developer_instructions`) plus `PreToolUse`/`UserPromptSubmit` hooks and a
+  launcher that injects the agent-scoped Paseo MCP. Hooks enforce role
+  allowlists, V3 authority, owned scope, and git-push scoping.
 - **Pi** uses per-role `PI_CODING_AGENT_DIR` with an `AGENTS.md` system prompt +
-  `settings.json`, **plus** a shared TypeScript extension that hard-enforces
-  tool allowlists, V3 Task Brief authority, CLI role gates, and git-push scoping.
+  `settings.json` + `mcp.json`, a launcher that sets the MCP URL, **plus** a
+  shared TypeScript extension that hard-enforces tool allowlists, V3 Task Brief
+  authority, and git-push scoping.
 - **Claude Code** uses per-role `CLAUDE_CONFIG_DIR` with a `CLAUDE.md` system
   prompt (Claude Code reads `CLAUDE.md`, not `AGENTS.md`) + `settings.json`
-  (permissions + hooks), **plus** Node hooks (`PreToolUse` /
-  `UserPromptSubmit`) that enforce the same CLI-only policy as Pi.
+  (permissions + hooks), a launcher that injects the agent-scoped Paseo MCP via
+  `--mcp-config`, **plus** a set of Node **hooks** (`PreToolUse` /
+  `UserPromptSubmit`) that hard-enforce the same policy as the Pi extension.
   Status: live-verified once on this host (T-1 Lead→Worker→Reviewer flow;
   the `claude` provider is currently available).
 
@@ -74,31 +75,24 @@ A single root entry point chooses which pack to install and delegates to that
 pack's own installer:
 
 ```bash
-# macOS/Linux
 ./install                 # interactive: codex / pi / claude / all
-./install pi --dry-run
-./install all --force
-
-# Windows PowerShell / cmd.exe
-.\install.cmd             # interactive
-.\install.cmd pi --dry-run
-.\install.cmd all --force
-
-# Portable on every OS
-node install.mjs pi --dry-run
+./install pi              # Pi pack only
+./install codex           # Codex pack only
+./install claude          # Claude Code pack only
+./install all             # all three, Codex first
+./install pi --dry-run    # preview, write nothing
+./install all --force     # overwrite differing files (backs up first)
+./install --help
 ```
 
-`install.mjs` is the cross-platform dispatcher; `install` and `install.cmd` are
-thin POSIX/Windows launchers. Each pack's installer is self-contained inside its folder
+Each pack's installer is self-contained inside its folder
 (`codex-orchestration/install.mjs`, `pi-orchestration/install.mjs`,
 `claude-orchestration/install.mjs`). It backs up JSON before changing it, fails
 closed when a target differs (use `--force`), and **never restarts the Paseo
-daemon** — you do that yourself after agents are safe. Windows installation
-uses `PATHEXT` discovery, `.cmd` launchers, directory junctions, and file hard
-links/copy fallback, so Bash and Developer Mode are not required.
+daemon** — you do that yourself after agents are safe.
 
 Prerequisites: the matching agent CLI on PATH, and the pack's auth set up
-(`codex login`, or `pi` + `/login` for Pi).
+(`codex login`, or `pi` + `/login` + `pi install npm:pi-mcp-adapter` for Pi).
 
 ## Task routing
 
@@ -110,7 +104,7 @@ the narrowest non-destructive check; broader checks are noted.
 | Change a role's behavior (Codex) | [packs/codex-orchestration.md](packs/codex-orchestration.md) | `codex-orchestration/profiles/paseo-<role>.config.toml` (`developer_instructions`) | `codex --strict-config --profile paseo-<role> doctor --summary` |
 | Change a role's behavior (Pi) | [packs/pi-orchestration.md](packs/pi-orchestration.md) | `pi-orchestration/profiles/<role>/AGENTS.md` + `shared/paseo-team-policy.ts` | `node --check pi-orchestration/shared/paseo-team-policy.ts`; `/team-role` in an agent |
 | Change a role's behavior (Claude) | [packs/claude-orchestration.md](packs/claude-orchestration.md) | `claude-orchestration/profiles/<role>/CLAUDE.md` + `shared/paseo-team-policy/policy.mjs` | `node --check claude-orchestration/shared/paseo-team-policy/*.mjs`; PreToolUse stdin smoke (see pack README §15) |
-| Change the orchestration command surface | [architecture.md](architecture.md#role-gated-cli-facade) | Identical `*/bin/paseo-team` copies + Pi/Claude/Codex policy guards | `node test/cli-orchestration.test.mjs` |
+| Change which Paseo MCP tools a role sees | [architecture.md](architecture.md#selective-mcp-injection) | Codex: `codex-orchestration/bin/codex-role-app-server` (`enabled_tools`); Pi: `pi-orchestration/profiles/<role>/mcp.json` (`includeTools`); Claude: `claude-orchestration/shared/paseo-team-policy/policy.mjs` (`SUPERVISOR_ALLOWED_MCP_TARGETS`, hook-enforced) | `paseo provider ls --json` after daemon restart |
 | Change default provider/model preferences | [packs/codex-orchestration.md](packs/codex-orchestration.md) / [packs/pi-orchestration.md](packs/pi-orchestration.md) / [packs/claude-orchestration.md](packs/claude-orchestration.md) | `<pack>/install.mjs` (`providerConfig`, `defaultPreferences`) | `./install <pack> --dry-run` |
 | Change Agent Profile routing/install policy | [architecture.md](architecture.md#no-silent-fallback-agent-profiles--model-routing) | `docs/agent-profiles.md` + Pi/Claude `install.mjs` + active Lead prompt/skill | `node test/agent-profile-routing.test.mjs` |
 | Change interaction language | [architecture.md](architecture.md#vietnamese-is-the-default-interaction-language) | All active role prompts + Lead skills/templates + installer preferences | `node test/language-policy.test.mjs` |
@@ -128,7 +122,7 @@ the narrowest non-destructive check; broader checks are noted.
 - `docs/codex-profiles-paseo-guide-vi.md` — operational guide for the Codex pack.
 - `docs/model-routing.md` — the four-layer model-routing contract and verified
   commands.
-- `docs/agent-profiles.md` — Paseo v0.4.0+ host profiles, CLI routing boundary, and the
+- `docs/agent-profiles.md` — Paseo v0.4.0+ host profiles, MCP mapping, and the
   profile-aware no-silent-fallback cycle.
 - `docs/multi-host.md` — N-host routing and the manual cross-host test plan.
 - `docs/implementation-report-model-routing.md` — what was fixed and why.

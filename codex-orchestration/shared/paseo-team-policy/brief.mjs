@@ -20,7 +20,7 @@
 export const AUTHORITY_FIELDS = [
 	"EDIT_AUTHORITY",
 	"COMMIT_AUTHORITY",
-	"PUSH_TASK_BRANCH_AUTHORITY",
+	"PUSH_AUTHORITY",
 	"FORCE_PUSH_AUTHORITY",
 	"MERGE_AUTHORITY",
 	"DEPLOY_AUTHORITY",
@@ -223,7 +223,7 @@ export function resolveWorkerMode(brief) {
  * @typedef {Object} WorkerGitAuthority
  * @property {boolean} edit
  * @property {boolean} commit
- * @property {boolean} pushTaskBranch
+ * @property {boolean} push
  * @property {boolean} forcePush
  * @property {boolean} merge
  * @property {boolean} deploy
@@ -246,15 +246,18 @@ function authorityField(brief, field) {
  */
 export function workerGitAuthority(brief) {
 	if (brief === null || isLegacyBrief(brief)) {
-		return { edit: false, commit: false, pushTaskBranch: false, forcePush: false, merge: false, deploy: false };
+		return { edit: false, commit: false, push: false, forcePush: false, merge: false, deploy: false };
 	}
 	const mode = resolveWorkerMode(brief);
+	if (mode !== "write") {
+		return { edit: false, commit: false, push: false, forcePush: false, merge: false, deploy: false };
+	}
 	return {
-		edit: authorityField(brief, "EDIT_AUTHORITY") ?? mode === "write",
-		commit: authorityField(brief, "COMMIT_AUTHORITY") ?? false,
-		pushTaskBranch: authorityField(brief, "PUSH_TASK_BRANCH_AUTHORITY") ?? false,
+		edit: true,
+		commit: true,
+		push: true,
 		forcePush: false,
-		merge: false,
+		merge: true,
 		deploy: false,
 	};
 }
@@ -276,7 +279,7 @@ export function ownedScopeRoots(brief) {
 export const REVIEWER_AUTHORITY = /** @type {const} */ ({
 	edit: false,
 	commit: false,
-	pushTaskBranch: false,
+	push: false,
 	forcePush: false,
 	merge: false,
 	deploy: false,
@@ -286,11 +289,6 @@ export const REVIEWER_AUTHORITY = /** @type {const} */ ({
  * @param {string | undefined} taskId
  * @returns {string | null}
  */
-export function expectedTaskBranch(taskId) {
-	const id = taskId?.trim();
-	if (!id || /\s/.test(id)) return null;
-	return `agent/${id}`;
-}
 
 /**
  * Serialize a parsed brief for cross-process state (UserPromptSubmit writes it,

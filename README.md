@@ -8,7 +8,7 @@ Repository này không phải ứng dụng runtime. Nó cung cấp:
 
 - role prompts và skills;
 - policy enforcement và tool allowlists;
-- role-gated facade trên public Paseo CLI;
+- launcher cho agent-scoped Paseo MCP;
 - installer cho từng agent CLI;
 - Agent Profiles và model-routing policy;
 - tài liệu kiến trúc, vận hành và kiểm thử.
@@ -50,12 +50,15 @@ ngôn ngữ khác cho một output cụ thể.
 
 ### Paseo là control plane duy nhất
 
-Lead/Supervisor delegate qua role-gated `$PASEO_TEAM_CLI`. Facade gọi public
-Paseo CLI và giữ parent/workspace qua `PASEO_AGENT_ID`; nó không gọi MCP hoặc
-daemon API trực tiếp. Mọi subagent bắt buộc dùng cùng workspace hiện tại của
-Lead; wrapper từ chối workspace/worktree flags và workspace management. Raw
-`paseo`, MCP, native subagents và task database riêng đều bị cấm.
-Worker/Reviewer không có orchestration authority.
+Lead delegate qua Paseo MCP (`create_agent`, `send_agent_prompt`,
+`get_agent_status`) với `notifyOnFinish=true` — không polling, không blocking
+wait. Mọi subagent kế thừa workspace hiện tại của Lead; không tạo
+workspace/worktree (policy chặn cả `git worktree` mutation). Review diễn ra
+serialized trong cùng workspace: Engineer xong mới tới Reviewer. Với rủi ro mất
+completion notification, Lead giữ một heartbeat reconcile 30 phút cho batch đang
+chờ và tự xóa khi xong. Worker và Reviewer không nhận Paseo MCP. Supervisor chỉ
+nhận năm tool monitoring và recovery đã được allowlist.
+
 
 ### V3 Task Brief là authority channel
 
@@ -70,23 +73,23 @@ PASEO_TEAM_TASK_V3_END
 Brief thiếu marker, malformed, dùng V1/V2, hoặc không cấp authority rõ ràng sẽ
 resolve fail-closed về read-only. Canonical templates:
 
-- [`pi-orchestration/templates/TASK_BRIEF_V3.md`](pi-orchestration/templates/TASK_BRIEF_V3.md)
-- [`claude-orchestration/templates/TASK_BRIEF_V3.md`](claude-orchestration/templates/TASK_BRIEF_V3.md)
+- [`pi-orchestration/templates/TASK_BRIEF.md`](pi-orchestration/templates/TASK_BRIEF.md)
+- [`claude-orchestration/templates/TASK_BRIEF.md`](claude-orchestration/templates/TASK_BRIEF.md)
 
 Installer copy template vào role home của Lead; Lead không cần và không được
 quét toàn bộ `$HOME` để tìm source checkout.
 
 ### No silent fallback
 
-Trước mỗi agent, Lead phải chạy:
+Trước mỗi `create_agent`, Lead phải kiểm tra:
 
 ```text
-paseo-team providers → paseo-team models → paseo-team run → paseo-team inspect
+list_profiles → list_providers → list_models → inspect_provider
+              → create_agent → get_agent_status
 ```
 
-`run` bắt buộc exact provider/model và thinking. Provider, model, thinking hoặc
-mode không khớp `inspect` sẽ bị `BLOCKED`; không inherit daemon default. Agent
-Profiles chỉ là preset để Human launch, không phải routing input của Lead CLI.
+Model, thinking, mode hoặc features không khớp runtime sẽ bị `BLOCKED`, không tự
+sửa profile, bỏ field hoặc inherit daemon default.
 
 ### Same-family routing mặc định
 
@@ -122,8 +125,6 @@ paseo status
 
 ### Chọn pack
 
-macOS/Linux:
-
 ```bash
 ./install                 # interactive
 ./install pi              # chỉ Pi
@@ -132,39 +133,22 @@ macOS/Linux:
 ./install all             # Codex → Pi → Claude
 ```
 
-Windows PowerShell hoặc Command Prompt:
-
-```powershell
-.\install.cmd
-.\install.cmd pi
-.\install.cmd all --dry-run --force
-```
-
-Entry point portable dùng chung trên mọi OS:
+Xem trước thay đổi:
 
 ```bash
-node install.mjs pi --dry-run
+./install pi --dry-run
 ```
 
 Nếu installer phát hiện pack-owned file khác bản trong repository, review rồi
 chạy:
 
 ```bash
-# macOS/Linux
 ./install pi --dry-run --force
 ./install pi --force
-
-# Windows
-.\install.cmd pi --dry-run --force
-.\install.cmd pi --force
 ```
 
 Installer backup file bị thay thế, preserve Human-owned Agent Profiles và không
-tự restart daemon. Khi nâng từ bản MCP sang CLI-only, dùng `--force` để retire
-launcher/`mcp.json` cũ và thay provider config sau khi đã review dry-run.
-Trên Windows, installer dùng `PATHEXT`, cài `paseo-team.cmd`, dùng junction cho
-shared directories và hard link (hoặc copy fallback khi khác volume) cho shared
-credential files; không yêu cầu Bash hay Windows Developer Mode.
+tự restart daemon.
 
 Sau khi các agent đang chạy đã an toàn:
 
@@ -181,10 +165,9 @@ Hướng dẫn riêng từng pack:
 
 ## Agent Profiles
 
-Pi và Claude installers merge bốn managed profiles. Pi xác minh và pin route
-role-specific (`Lead = GPT-5.6 Sol/high`;
-`Worker/Reviewer/Supervisor = GPT-5.6 Luna/max`),
-trong khi Claude tiếp tục dùng model/default thinking được discover trên host:
+Pi installer pin và validate route theo role (Lead = GPT-5.6 Sol/`high`;
+Worker/Reviewer/Supervisor = GPT-5.6 Luna/`max`). Claude installer dùng model
+đầu tiên/default được discover trên host. Cả hai merge bốn managed profiles:
 
 ```text
 paseo-learn:<pack>:lead:host-default
@@ -227,10 +210,8 @@ Chi tiết: [`docs/agent-profiles.md`](docs/agent-profiles.md).
 Focused active-pack checks:
 
 ```bash
-node test/cli-orchestration.test.mjs
 node test/agent-profile-routing.test.mjs
 node test/active-policy.test.mjs
-node test/codex-policy.test.mjs
 node test/language-policy.test.mjs
 
 node --check pi-orchestration/install.mjs

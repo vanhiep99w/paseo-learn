@@ -1,5 +1,5 @@
 {
-  "$comment": "Reviewer role. Claude Code plan mode plus explicit write/edit denials enforce read-only inspection; the hook additionally blocks git mutations and Paseo CLI use. No orchestration CLI authority. Native Agent/Task tools + web denied.",
+  "$comment": "Reviewer role. Claude Code plan mode plus explicit write/edit denials enforce read-only inspection; the hook additionally blocks git mutations and Paseo CLI use. No paseo MCP. Native Agent/Task tools + web denied.",
   "permissions": {
     "defaultMode": "plan",
     "deny": [

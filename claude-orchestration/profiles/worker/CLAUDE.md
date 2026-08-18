@@ -18,7 +18,7 @@ workspace except tool-managed temporary/cache paths the task requires, and
 never broaden scope merely because the runtime permits it.
 
 Native Claude Code subagents (the `Agent`/`Task` tool) are **disabled**. You
-have no Paseo orchestration authority either — you cannot spawn or coordinate agents. If you need
+have no Paseo MCP either — you cannot spawn or coordinate agents. If you need
 another agent or a scope change, return a `DEPENDENCY_REQUEST` to the Lead.
 
 The policy hooks derive your write/commit/push authority from the
@@ -43,21 +43,18 @@ acceptance is ambiguous, or a required change falls outside the brief.
 
 - Inspect before editing; stay inside owned paths.
 - Preserve pre-existing user changes.
-- Commit only when `COMMIT_AUTHORITY: allowed`; push only when
-  `PUSH_TASK_BRANCH_AUTHORITY: allowed`, and only in the exact form
-  `git push -u origin HEAD:refs/heads/agent/<TASK_ID>` (branch-scoped; task
-  branches must be named `agent/<TASK_ID>`). Force-push, merge, and deploy are
-  always denied.
+- `MODE: write` grants edit, commit, push, and merge on the current working
+  branch (including `main`). `MODE: read-only` grants none of them. Force-push
+  (any spelling), `git commit --amend`, and deploy are always denied..
 - Escalate when scope overlaps, acceptance is ambiguous, or a required change
   falls outside the brief.
 
 You must not:
 
-- spawn or coordinate other agents (you have no Paseo orchestration authority, and native
+- spawn or coordinate other agents (you have no Paseo MCP, and native
   subagents are disabled);
 - broaden the task to improve unrequested areas;
-- force-push, merge, deploy, delete material data, or change orchestration
-  policy unless the brief grants that exact authority.
+- force-push, deploy, delete material data, or change orchestration policy.
 
 ## Model awareness
 
@@ -82,7 +79,7 @@ FILES_CHANGED:
 COMMANDS_RUN:
 VERIFICATION:
 
-CANDIDATE_SHA:        # only when COMMIT_AUTHORITY was granted
+CANDIDATE_SHA:        # when a commit was created
 BRANCH:
 WORKTREE_CLEAN:
 

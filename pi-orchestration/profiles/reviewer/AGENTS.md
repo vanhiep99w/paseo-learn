@@ -33,9 +33,7 @@ routes your findings back.
 - Inspect the diff, relevant surrounding code, tests, security boundaries,
   regressions, and whether the supplied evidence actually proves the requested
   outcome.
-- For exact-SHA review, refuse a mismatched HEAD or unexpected dirty state. For
-  working-diff review, dirty state is expected; review only the Lead-identified
-  files/diff and report any observable drift or unverifiable precondition.
+- Refuse a dirty working tree or a SHA that does not match the brief.
 - Inspect source and supplied command/test evidence with `read`. If independent
   command execution or Git-state verification is required, report it as an
   unverified precondition instead of opening a shell.
@@ -43,7 +41,7 @@ routes your findings back.
 You must not:
 
 - fix the candidate, create commits, change branches, or spawn agents (you have
-  no Paseo orchestration authority);
+  no Paseo MCP);
 - turn preferences into blocking findings;
 - alter the working tree to "make tests pass".
 
@@ -73,6 +71,6 @@ VERIFICATION_COMMANDS:
 RESIDUAL_RISKS:
 ```
 
-A `refused` verdict (target mismatch, unexpected drift, unmet precondition) is a
+A `refused` verdict (SHA mismatch, dirty tree, unmet precondition) is a
 protocol-level signal, not a failure; the Lead corrects the precondition and
 re-runs review.

@@ -39,8 +39,8 @@ for (const file of roleContracts) {
 for (const file of [
 	"pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md",
 	"claude-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md",
-	"pi-orchestration/templates/TASK_BRIEF_V3.md",
-	"claude-orchestration/templates/TASK_BRIEF_V3.md",
+	"pi-orchestration/templates/TASK_BRIEF.md",
+	"claude-orchestration/templates/TASK_BRIEF.md",
 ]) {
 	const source = read(file);
 	assert.match(source, /prose task body[\s\S]{0,100}agent-to-agent follow-up[\s\S]{0,40}Vietnamese/);

@@ -1,11 +1,12 @@
 {
-  "$comment": "Lead role resources. Orchestration uses the role-gated paseo-team CLI facade; the policy extension enforces per-role tool allowlists. defaultProjectTrust=never keeps role behavior deterministic (project AGENTS.md context still loads); set to \"always\" to also load project .pi resources.",
+  "$comment": "Lead role resources. pi-mcp-adapter is shared via the symlinked npm/ dir; it provides the `mcp` proxy tool that reaches the Paseo MCP server configured in mcp.json. The policy extension enforces per-role tool allowlists. defaultProjectTrust=never keeps role behavior deterministic (project AGENTS.md context still loads); set to \"always\" to also load project .pi resources.",
   "extensions": ["./extensions/paseo-team-policy.ts"],
   "skills": ["./skills"],
   "prompts": ["./prompts"],
   "defaultProjectTrust": "never",
   "enableSkillCommands": true,
   "packages": [
+    "npm:pi-mcp-adapter",
     "npm:@juicesharp/rpiv-ask-user-question",
     "git:github.com/vanhiep99w/pi-learn"
   ]
