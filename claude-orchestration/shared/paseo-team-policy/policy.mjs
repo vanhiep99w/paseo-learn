@@ -25,20 +25,18 @@ import {
 	ownedScopeRoots,
 	resolveWorkerMode,
 	workerGitAuthority,
-	REVIEWER_AUTHORITY,
-} from "./brief.mjs";
+	} from "./brief.mjs";
 
 // ---------------------------------------------------------------------------
 // Role detection
 // ---------------------------------------------------------------------------
 
-/** @typedef {"lead" | "worker" | "reviewer" | "supervisor"} TeamRole */
+/** @typedef {"lead" | "peer" | "supervisor"} TeamRole */
 
 /** @returns {TeamRole | undefined} */
 export function detectRole() {
 	const raw = process.env.PASEO_CLAUDE_ROLE?.trim().toLowerCase();
-	return raw === "lead" || raw === "worker" || raw === "reviewer" ||
-			raw === "supervisor"
+	return raw === "lead" || raw === "peer" || raw === "supervisor"
 		? /** @type {TeamRole} */ (raw)
 		: undefined;
 }
@@ -108,7 +106,7 @@ export function matchesPaseoToolName(name, known) {
 }
 
 // ---------------------------------------------------------------------------
-// Bash CLI guard — workers/reviewers must not drive Paseo from the shell to
+// Bash CLI guard — peers must not drive Paseo from the shell to
 // bypass the tool policy. Heuristic only; not an authorization boundary.
 // ---------------------------------------------------------------------------
 
@@ -156,7 +154,7 @@ function detectForcePush(command) {
  */
 export function gitAuthorityBlockReason(command, authority, taskId) {
 	if (detectForcePush(command)) {
-		return "FORCE_PUSH_AUTHORITY is always denied for Workers/Reviewers (including -f/-uf/-fu, --force*= and +refspec forms). Ask the Lead to update the brief.";
+		return "FORCE_PUSH_AUTHORITY is always denied for Peers (including -f/-uf/-fu, --force*= and +refspec forms). Ask the Lead to update the brief.";
 	}
 	if (GIT_AMEND_RE.test(command)) {
 		return "git commit --amend is always denied: a branch must advance by NEW commits so the SHA chain stays reviewable. Create a new correction commit.";
@@ -234,7 +232,7 @@ export function supervisorCreateAgentBlockReason(input) {
 	const a = /** @type {Record<string, unknown>} */ (args);
 	const provider = typeof a.provider === "string" ? a.provider : "";
 	if (!/^claude-lead\/[^/]+\/[^/]+/.test(provider)) {
-		return `Supervisor create_agent is lead-recovery only: provider must be "claude-lead/<provider>/<model-id>" (got "${provider || "<missing>"}"). Workers/Reviewers and other providers are created by the Lead, never by the Supervisor.`;
+		return `Supervisor create_agent is lead-recovery only: provider must be "claude-lead/<provider>/<model-id>" (got "${provider || "<missing>"}"). Peers and other providers are created by the Lead, never by the Supervisor.`;
 	}
 	const labels = a.labels;
 	if (typeof labels !== "object" || labels === null) {
@@ -335,23 +333,20 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 	// Lead/Supervisor delegate through mcp__paseo__create_agent, never the native
 	// Agent tool.
 	if (toolName === "Agent" || toolName === "Task") {
-		return "Native subagents are disabled for every role. Delegate through the Paseo MCP (mcp__paseo__create_agent), available to Lead/Supervisor only; Workers/Reviewers report a DEPENDENCY_REQUEST.";
+		return "Native subagents are disabled for every role. Delegate through the Paseo MCP (mcp__paseo__create_agent), available to Lead/Supervisor only; Peers report a DEPENDENCY_REQUEST.";
 	}
 
 	// Write/edit tools — bounded by role + the current-turn brief.
 	if (WRITE_TOOLS.has(toolName)) {
-		if (role === "reviewer") {
-			return "Reviewer is behaviorally read-only. Report findings instead of editing files.";
-		}
 		if (role === "supervisor") {
 			return "Supervisor cannot modify product code. Send an observation to the Lead instead.";
 		}
-		if (role === "worker") {
+		if (role === "peer") {
 			const mode = resolveWorkerMode(brief);
 			if (mode !== "write") {
 				return mode !== "write"
-					? "This Worker session is read-only (no valid V3 brief with MODE: write this turn). Propose the change in your report instead of editing files."
-					: "This Worker session is read-only. A valid V3 brief with MODE: write is required.";
+					? "This Peer session is read-only (no valid V3 brief with MODE: write this turn). Propose the change in your report instead of editing files."
+					: "This Peer session is read-only. A valid V3 brief with MODE: write is required.";
 			}
 			const scopeBlock = ownedScopeBlockReason(brief, writeTarget(toolName, toolInput), cwd);
 			if (scopeBlock) return scopeBlock;
@@ -362,13 +357,13 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 	}
 
 	// Shell tools — supervisor observes via MCP only (no shell, mirrors Pi);
-	// worker/reviewer get the git-authority + Paseo-CLI guard.
+	// peer get the git-authority + Paseo-CLI guard.
 	if (SHELL_TOOLS.has(toolName)) {
 		if (role === "supervisor") {
 			return "Supervisor cannot run shell commands. Observe through the Paseo MCP (list_agents, get_agent_status, get_agent_activity) and Read for inspection.";
 		}
-		if (role === "worker" && resolveWorkerMode(brief) !== "write") {
-			return "This Worker turn is read-only, so shell execution is disabled. A new valid V3 brief with MODE: write is required for Bash/PowerShell.";
+		if (role === "peer" && resolveWorkerMode(brief) !== "write") {
+			return "This Peer turn is read-only, so shell execution is disabled. A new valid V3 brief with MODE: write is required for Bash/PowerShell.";
 		}
 		const command =
 			typeof (/** @type {any} */ (toolInput)?.command) === "string"
@@ -377,14 +372,12 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 		if (callsGitWorktreeMutation(command)) {
 			return "Workspace/worktree mutation is disabled. Every agent works in the current shared workspace.";
 		}
-		if (role === "worker" || role === "reviewer") {
+		if (role === "peer") {
 			if (callsPaseoCli(command)) {
 				return `${role} cannot drive the Paseo CLI from a shell (would bypass the tool policy). Report a DEPENDENCY_REQUEST to the Lead instead.`;
 			}
-			const authority =
-				role === "reviewer" ? REVIEWER_AUTHORITY : workerGitAuthority(brief);
-			const taskId =
-				role === "reviewer" ? undefined : brief?.fields.get("TASK_ID");
+			const authority = workerGitAuthority(brief);
+			const taskId = brief?.fields.get("TASK_ID");
 			const gitBlock = gitAuthorityBlockReason(command, authority, taskId);
 			if (gitBlock) return gitBlock;
 		}
@@ -393,7 +386,7 @@ export function blockReasonForTool(role, brief, toolName, toolInput, cwd = proce
 	// Paseo MCP tools — mcp__paseo__<target>. Direct tool call (no proxy).
 	if (toolName.startsWith(PASEO_MCP_PREFIX)) {
 		const target = toolName.slice(PASEO_MCP_PREFIX.length);
-		if (role === "worker" || role === "reviewer") {
+		if (role === "peer") {
 			return `${role} cannot use Paseo orchestration tools (it would expose the control plane). Report a DEPENDENCY_REQUEST to the Lead instead.`;
 		}
 		if (role === "lead" && matchesPaseoToolName(target, ["create_agent"])) {

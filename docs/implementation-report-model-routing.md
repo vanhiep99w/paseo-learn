@@ -1,3 +1,5 @@
+> **Historical pre-SLP material.** Any `worker`/`reviewer` provider or four-role workflow below is superseded by the active three-role Lead–Peer–Supervisor contract in [`../wiki/architecture.md`](../wiki/architecture.md). Do not use it to configure current packs.
+
 # Implementation Report — Model Routing Role Pack (2026-08-04)
 
 ```text

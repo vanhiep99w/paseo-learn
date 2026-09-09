@@ -1,3 +1,5 @@
+> **Historical pre-SLP material.** Any `worker`/`reviewer` provider or four-role workflow below is superseded by the active three-role Lead–Peer–Supervisor contract in [`../wiki/architecture.md`](../wiki/architecture.md). Do not use it to configure current packs.
+
 # Kiến trúc orchestration agent với Paseo, Pi, Codex và Claude
 
 Ngày đánh giá: 2026-08-07  

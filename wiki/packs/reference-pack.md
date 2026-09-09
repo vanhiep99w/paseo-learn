@@ -1,11 +1,9 @@
 # Reference pack: tai-lieu-tham-khao (paseo-pi-team)
 
-`tai-lieu-tham-khao/` is the original Pi role pack, named **paseo-pi-team**. Its
-own `README.md` describes it as reference material kept for orchestration design;
-the two active root packs (`codex-orchestration/`, `pi-orchestration/`) are the
-ones intended for use. Read this page when you need the **four-layer model
-routing system**, the **unit-tested policy extension**, or the original
-three-role design.
+`tai-lieu-tham-khao/` is the archived original Pi role pack, named
+**paseo-pi-team**. It is reference material only and must not be installed over
+the active SLP packs. Read it for historical four-layer routing or extension
+ideas, not as current operational policy.
 
 Shared concepts are in [../architecture.md](../architecture.md); this page covers
 what differs from the active packs.
@@ -14,15 +12,15 @@ what differs from the active packs.
 
 | Aspect | Active packs | This reference pack |
 |---|---|---|
-| Roles | 4 (lead/worker/reviewer/supervisor) | 3 (lead/peer/supervisor); peer = worker\|reviewer via `MODE` |
+| Roles | 3 (lead/peer/supervisor); Peer disposition + V3 mode | 3 (lead/peer/supervisor); historical peer authority fields |
 | MCP injection | `injectIntoAgents=false` + launcher-selective | `injectIntoAgents=true` (global) + extension `setActiveTools` blocks peers |
 | Role config | per-role `CODEX_HOME` / `PI_CODING_AGENT_DIR` | one shared extension + prompts under `~/.pi/agent/` |
 | Model routing | discovery + no-silent-fallback verify | full **four-layer** system with resolver + preflight |
 | Enforcement (Pi) | instruction + `includeTools` + extension | extension only (`setActiveTools` + `tool_call`) |
 
-The 3-role model splits writer and reviewer into one `peer` role whose `MODE`
-(write/read-only) and authority fields come from the V3 brief. The active packs
-promote these to first-class `worker`/`reviewer` roles instead.
+Both designs use a Peer. Active packs require V3 `DISPOSITION` and permit write
+only for `engineer + MODE: write + OWNED_SCOPE`; reviewer is a read-only Peer
+disposition. Active packs do not use Beads or a fallback tracker yet.
 
 ## Role policy extension
 

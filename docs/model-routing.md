@@ -1,3 +1,5 @@
+> **Historical pre-SLP material.** Any `worker`/`reviewer` provider or four-role workflow below is superseded by the active three-role Lead–Peer–Supervisor contract in [`../wiki/architecture.md`](../wiki/architecture.md). Do not use it to configure current packs.
+
 # Model Routing — cấu hình, truyền và xác minh model
 
 Tài liệu này mô tả kiến trúc model routing bốn lớp và cách vận hành **không

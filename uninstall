@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+#
+# ./uninstall — safe dispatcher for Paseo Learn role-pack removal.
+#
+# Dry-run is the default. Normal apply removes managed provider/profile entries,
+# preferences, launchers and exact managed files while preserving role homes.
+# Purging role homes is explicit because they may contain sessions or credentials.
+
+set -euo pipefail
+
+script_path="${BASH_SOURCE[0]:-$0}"
+dir="$(cd "$(dirname "$(realpath -m "$script_path" 2>/dev/null || echo "$script_path")")" && pwd)"
+uninstaller="$dir/scripts/uninstall.mjs"
+
+usage() {
+	cat <<'EOF'
+Usage:
+  ./uninstall [codex|pi|claude|all] [--dry-run|--apply] [--force] [--purge-role-homes]
+
+Targets:
+  codex   Remove the Codex role pack.
+  pi      Remove the Pi role pack.
+  claude  Remove the Claude Code role pack.
+  all     Remove all three role packs.
+  (none)  Interactive prompt.
+
+Modes:
+  --dry-run   Preview removal without changing files (default).
+  --apply     Apply the uninstall plan.
+
+Safety:
+  --force              Back up and remove differing managed files.
+  --purge-role-homes   Delete role-local sessions, credentials and user files.
+                       Requires both --apply and --force.
+
+Normal uninstall preserves ~/.codex-paseo, ~/.pi-paseo and ~/.claude-paseo.
+It never stops agents or restarts the Paseo daemon.
+EOF
+}
+
+if ! command -v node >/dev/null 2>&1; then
+	echo "uninstall: node is not on PATH" >&2
+	exit 127
+fi
+
+selection=""
+flags=()
+for arg in "$@"; do
+	case "$arg" in
+		-h|--help) usage; exit 0 ;;
+		--dry-run|--apply|--force|--purge-role-homes) flags+=("$arg") ;;
+		-*) echo "uninstall: unknown flag $arg" >&2; usage; exit 2 ;;
+		*)
+			if [[ -n "$selection" ]]; then
+				echo "uninstall: unexpected extra target '$arg'" >&2
+				exit 2
+			fi
+			selection="$arg"
+			;;
+	esac
+done
+
+if [[ -z "$selection" ]]; then
+	echo ""
+	echo "  Paseo Learn uninstaller"
+	echo "  Choose a pack:"
+	echo "    1) codex"
+	echo "    2) pi"
+	echo "    3) claude"
+	echo "    4) all"
+	echo ""
+	PS3="Select [1-4]: "
+	select choice in "codex" "pi" "claude" "all"; do
+		case "$choice" in
+			codex|pi|claude|all) selection="$choice"; break ;;
+			*) echo "  invalid choice, try again" ;;
+		esac
+	done
+fi
+
+case "$selection" in
+	codex|pi|claude|all) ;;
+	*) echo "uninstall: unknown target '$selection'" >&2; usage; exit 2 ;;
+esac
+
+if [[ ${#flags[@]} -gt 0 ]]; then
+	exec node "$uninstaller" "$selection" "${flags[@]}"
+else
+	exec node "$uninstaller" "$selection" --dry-run
+fi

@@ -30,6 +30,17 @@ const BRIEF_HEADER_RE = /^PASEO_TEAM_TASK_V([12])$/;
 const V3_BEGIN = "PASEO_TEAM_TASK_V3_BEGIN";
 const V3_END = "PASEO_TEAM_TASK_V3_END";
 const BRIEF_FIELD_RE = /^([A-Z][A-Z0-9_]*):\s*(.*)$/;
+const SIMPLE_DISPOSITION_RE = /^DISPOSITION:\s*(engineer|scout|architect|reviewer|shadow)\s*$/i;
+
+/** @typedef {"engineer" | "scout" | "architect" | "reviewer" | "shadow"} PeerDisposition */
+
+export const PEER_DISPOSITIONS = [
+	"engineer",
+	"scout",
+	"architect",
+	"reviewer",
+	"shadow",
+];
 
 const V3_ALLOWED_FIELDS = new Set([
 	"TASK_ID",
@@ -141,6 +152,13 @@ function parseV3Brief(lines) {
 			malformed.push(`invalid MODE value "${rawMode}"`);
 		}
 	}
+	const rawDisposition = fields.get("DISPOSITION");
+	const disposition = rawDisposition?.toLowerCase();
+	if (rawDisposition === undefined) {
+		malformed.push("missing DISPOSITION field");
+	} else if (!PEER_DISPOSITIONS.includes(disposition)) {
+		malformed.push(`invalid DISPOSITION value "${rawDisposition}"`);
+	}
 	for (const field of AUTHORITY_FIELDS) {
 		const value = fields.get(field);
 		if (value !== undefined) {
@@ -152,6 +170,9 @@ function parseV3Brief(lines) {
 	}
 	if (mode === "write" && normalizeOwnedScope(fields.get("OWNED_SCOPE")) === null) {
 		malformed.push("MODE: write requires a valid workspace-relative OWNED_SCOPE");
+	}
+	if (mode === "write" && disposition !== "engineer") {
+		malformed.push("MODE: write is valid only for DISPOSITION: engineer");
 	}
 	if (malformed.length > 0) return failClosed();
 	return { version: 3, mode, malformed, fields };
@@ -174,6 +195,17 @@ export function parseTaskBrief(prompt) {
 	const firstNonEmpty = lines.map((l) => l.trim()).find((l) => l.length > 0);
 	if (!firstNonEmpty) return null;
 	if (firstNonEmpty === V3_BEGIN) return parseV3Brief(lines);
+	const simpleDisposition = firstNonEmpty.match(SIMPLE_DISPOSITION_RE)?.[1]?.toLowerCase();
+	if (simpleDisposition) {
+		const fields = new Map([
+			["DISPOSITION", simpleDisposition],
+			["MODE", simpleDisposition === "engineer" ? "write" : "read-only"],
+		]);
+		// The one-line transport grants the Engineer the current workspace.
+		// Use a V3 brief when a narrower OWNED_SCOPE is required.
+		if (simpleDisposition === "engineer") fields.set("OWNED_SCOPE", ".");
+		return { version: 3, mode: simpleDisposition === "engineer" ? "write" : "read-only", malformed: [], fields };
+	}
 	const headerMatch = firstNonEmpty.match(BRIEF_HEADER_RE);
 	if (!headerMatch || !headerMatch[1]) return null;
 	const version = /** @type {1|2} */ (headerMatch[1] === "2" ? 2 : 1);

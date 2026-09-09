@@ -1,248 +1,117 @@
-# Paseo Learn — Governed Multi-Agent Role Packs
+# Paseo Learn — SLP Role Packs
 
-Bộ cấu hình và policy để vận hành **Codex, Pi và Claude Code** như một nhóm
-multi-agent có phân vai dưới sự điều phối của
-[Paseo](https://paseo.sh).
+Bộ cấu hình, policy và installer để vận hành Codex, Pi và Claude Code theo
+topology **Supervisor – Lead – Peer (SLP)** dưới Paseo.
 
-Repository này không phải ứng dụng runtime. Nó cung cấp:
+> Đây là role-pack, không phải Paseo runtime fork. Nó enforce qua provider
+> profiles, hooks/extensions và tool exposure; không có immutable native
+> RoleBinding/daemon receipts như `paseo-doctrine-downstream`.
 
-- role prompts và skills;
-- policy enforcement và tool allowlists;
-- launcher cho agent-scoped Paseo MCP;
-- installer cho từng agent CLI;
-- Agent Profiles và model-routing policy;
-- tài liệu kiến trúc, vận hành và kiểm thử.
+## Workflow hiện hành
 
-> Bắt đầu từ [`wiki/quickstart.md`](wiki/quickstart.md) nếu cần hiểu đầy đủ cấu
-> trúc repository và nơi sở hữu từng policy.
+```text
+Human → Lead → Peer (engineer | scout | architect | reviewer | shadow)
+           ↑
+      Supervisor (Human-governed observation/recovery only)
+```
 
-## Mô hình bốn role
-
-| Role | Trách nhiệm | Authority mặc định |
+| Role | Trách nhiệm | Không được làm |
 |---|---|---|
-| **Lead** | Phân rã task, chọn route, giao việc, tổng hợp bằng chứng và accept/reject | Điều phối; không viết product code mặc định |
-| **Worker** | Implement trong scope được giao | Chỉ được write/commit/push khi V3 Task Brief của turn hiện tại cấp quyền |
-| **Reviewer** | Review độc lập candidate SHA hoặc working diff | Behavioral read-only |
-| **Supervisor** | Quan sát governance và recovery | Allowlist tối thiểu; chỉ có một recovery path được gate |
+| Lead | Outcome, topology, integration evidence, engineering verdict | Tự accept material code mình vừa implement; hai writer cùng scope |
+| Peer | Một assignment bounded với một disposition | Điều phối agent, mở rộng scope, tự accept |
+| Supervisor | Quan sát governance cho Human, recovery Lead có gate | Staff product work, direct Peer, accept result |
 
-Các role có thể chạy với quyền filesystem/network rộng, nhưng **capability không
-phải authority**. Authority đến từ role contract, hard policy và V3 Task Brief.
+`reviewer` là **disposition của Peer**, không còn là provider/role riêng.
+`MODE: write` chỉ hợp lệ khi `DISPOSITION: engineer` và có `OWNED_SCOPE`; các
+disposition còn lại read-only. Mỗi moving/coupled scope có đúng một write owner.
 
-## Ba active packs
+## Không dùng Beads (tạm thời)
 
-| Pack | Runtime | Role home |
+Paseo agent messages, V3 assignment và handback là work state. Không có Beads,
+issue tracker fallback, private task database, repository ledger, poller hay
+background synchronization service. Điều này giữ Paseo là control plane duy
+nhất, nhưng không có durable issue graph/audit checkpoint như downstream tham
+chiếu.
+
+## Active packs
+
+| Pack | Provider IDs | Role homes |
 |---|---|---|
-| [`codex-orchestration/`](codex-orchestration/) | `codex app-server` | `CODEX_HOME` riêng cho từng role |
-| [`pi-orchestration/`](pi-orchestration/) | `pi --mode rpc` | `PI_CODING_AGENT_DIR` riêng cho từng role |
-| [`claude-orchestration/`](claude-orchestration/) | Claude Code headless/SDK | `CLAUDE_CONFIG_DIR` riêng cho từng role |
+| `codex-orchestration/` | `codex-lead`, `codex-peer`, `codex-supervisor` | `~/.codex-paseo/<role>` |
+| `pi-orchestration/` | `pi-lead`, `pi-peer`, `pi-supervisor` | `~/.pi-paseo/<role>` |
+| `claude-orchestration/` | `claude-lead`, `claude-peer`, `claude-supervisor` | `~/.claude-paseo/<role>` |
 
-Pack cũ trong [`tai-lieu-tham-khao/`](tai-lieu-tham-khao/) được giữ làm tài liệu
-tham khảo, không phải active install target.
-
-## Các invariant chính
-
-### Tiếng Việt là ngôn ngữ giao tiếp mặc định
-
-Mọi response cho Human và mọi prompt/message/report/review/handoff giữa các
-agent phải dùng tiếng Việt. Code, command, path, identifier, protocol field,
-log/error được quote và machine-readable token giữ nguyên. Human có thể chỉ định
-ngôn ngữ khác cho một output cụ thể.
-
-### Paseo là control plane duy nhất
-
-Lead delegate qua Paseo MCP (`create_agent`, `send_agent_prompt`,
-`get_agent_status`) với `notifyOnFinish=true` — không polling, không blocking
-wait. Mọi subagent kế thừa workspace hiện tại của Lead; không tạo
-workspace/worktree (policy chặn cả `git worktree` mutation). Review diễn ra
-serialized trong cùng workspace: Engineer xong mới tới Reviewer. Với rủi ro mất
-completion notification, Lead giữ một heartbeat reconcile 30 phút cho batch đang
-chờ và tự xóa khi xong. Worker và Reviewer không nhận Paseo MCP. Supervisor chỉ
-nhận năm tool monitoring và recovery đã được allowlist.
-
-
-### V3 Task Brief là authority channel
-
-Mọi prompt giao cho Worker/Reviewer phải chứa block:
-
-```text
-PASEO_TEAM_TASK_V3_BEGIN
-...
-PASEO_TEAM_TASK_V3_END
-```
-
-Brief thiếu marker, malformed, dùng V1/V2, hoặc không cấp authority rõ ràng sẽ
-resolve fail-closed về read-only. Canonical templates:
-
-- [`pi-orchestration/templates/TASK_BRIEF.md`](pi-orchestration/templates/TASK_BRIEF.md)
-- [`claude-orchestration/templates/TASK_BRIEF.md`](claude-orchestration/templates/TASK_BRIEF.md)
-
-Installer copy template vào role home của Lead; Lead không cần và không được
-quét toàn bộ `$HOME` để tìm source checkout.
-
-### No silent fallback
-
-Trước mỗi `create_agent`, Lead phải kiểm tra:
-
-```text
-list_profiles → list_providers → list_models → inspect_provider
-              → create_agent → get_agent_status
-```
-
-Model, thinking, mode hoặc features không khớp runtime sẽ bị `BLOCKED`, không tự
-sửa profile, bỏ field hoặc inherit daemon default.
-
-### Same-family routing mặc định
-
-- Pi Lead mặc định gọi `pi-worker`, `pi-reviewer`, …
-- Claude Lead mặc định gọi `claude-worker`, `claude-reviewer`, …
-- Codex Lead mặc định gọi `codex-worker`, `codex-reviewer`, …
-
-Cross-family routing chỉ hợp lệ khi Human chỉ định rõ provider family cho
-delegation đó. Nếu same-family provider unavailable, Lead phải báo:
-
-```text
-BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN
-```
-
-thay vì tự chuyển family.
-
-## Cài đặt nhanh
-
-### Yêu cầu chung
-
-- Node.js trên `PATH`;
-- Paseo **v0.4.0+**;
-- daemon đang chạy;
-- agent CLI và authentication tương ứng đã được cấu hình.
-
-Kiểm tra cơ bản:
-
-```bash
-node --version
-paseo --version
-paseo status
-```
-
-### Chọn pack
-
-```bash
-./install                 # interactive
-./install pi              # chỉ Pi
-./install claude          # chỉ Claude Code
-./install codex           # chỉ Codex
-./install all             # Codex → Pi → Claude
-```
-
-Xem trước thay đổi:
+Install one pack:
 
 ```bash
 ./install pi --dry-run
+./install pi --force       # required once when migrating old worker/reviewer state
+./install claude --force
+./install codex --force
 ```
 
-Nếu installer phát hiện pack-owned file khác bản trong repository, review rồi
-chạy:
+Installers remove only legacy managed provider/profile entries when `--force`
+is supplied; old role-home directories are left inert to avoid deleting local
+credentials or user data. They never restart the daemon.
+
+## Uninstall
+
+Preview removal of one pack or all packs:
 
 ```bash
-./install pi --dry-run --force
-./install pi --force
+./uninstall pi
+./uninstall all --dry-run
 ```
 
-Installer backup file bị thay thế, preserve Human-owned Agent Profiles và không
-tự restart daemon.
-
-Sau khi các agent đang chạy đã an toàn:
+Apply a normal uninstall:
 
 ```bash
-paseo daemon restart
-paseo provider ls --json
+./uninstall pi --apply
+./uninstall all --apply
 ```
 
-Hướng dẫn riêng từng pack:
+Normal uninstall removes Paseo Learn provider/Profile entries, matching
+preferences, launchers and exact managed files. It preserves role homes such as
+`~/.pi-paseo`, `~/.codex-paseo` and `~/.claude-paseo` because they may contain
+sessions, credentials or user-added files. Modified managed files are also
+preserved unless `--force` is supplied; forced removals are backed up first.
 
-- [`pi-orchestration/README.md`](pi-orchestration/README.md)
-- [`claude-orchestration/README.md`](claude-orchestration/README.md)
-- [`codex-orchestration/README.md`](codex-orchestration/README.md)
+Delete role homes only when their private state is intentionally disposable:
 
-## Agent Profiles
+```bash
+./uninstall all --apply --force --purge-role-homes
+```
 
-Pi installer pin và validate route theo role (Lead = GPT-5.6 Sol/`high`;
-Worker/Reviewer/Supervisor = GPT-5.6 Luna/`max`). Claude installer dùng model
-đầu tiên/default được discover trên host. Cả hai merge bốn managed profiles:
+The uninstaller does not stop agents or restart Paseo. Finish active agents,
+apply the uninstall, then restart the daemon manually.
+
+## Assignment contract
+
+The first non-empty line of every Peer prompt declares the current-turn
+disposition:
 
 ```text
-paseo-learn:<pack>:lead:host-default
-paseo-learn:<pack>:worker:host-default
-paseo-learn:<pack>:reviewer:host-default
-paseo-learn:<pack>:supervisor:host-default
+DISPOSITION: engineer | scout | architect | reviewer | shadow
 ```
 
-Managed profile có màu theo role bằng tên identity palette mà Paseo hỗ trợ:
+`engineer` is editable for that turn; the other dispositions and a prompt with
+no disposition are read-only. A follow-up that needs edit access repeats
+`DISPOSITION: engineer` as its first line because authority is never sticky.
+Use the task-brief template only when a narrower `OWNED_SCOPE` or a more explicit
+evidence contract is useful.
 
-| Role | Icon | Color |
-|---|---|---|
-| Lead | `compass` | `blue` |
-| Worker | `hammer` | `amber` |
-| Reviewer | `search` | `violet` |
-| Supervisor | `eye` | `red` |
+The body contains a neutral objective, boundaries, evidence, handback and stop
+condition. It must not pre-solve a solution or smuggle an acceptance verdict.
 
-Human-owned profiles được giữ nguyên. Managed profile drift làm installer dừng;
-`--force` chỉ thay managed IDs thuộc pack. Codex Agent Profiles vẫn được Human
-quản lý thủ công.
-
-Chi tiết: [`docs/agent-profiles.md`](docs/agent-profiles.md).
-
-## Cấu trúc repository
-
-```text
-.
-├── install                         # root installer dispatcher
-├── codex-orchestration/            # Codex role pack
-├── pi-orchestration/               # Pi role pack + policy extension
-├── claude-orchestration/           # Claude role pack + policy hooks
-├── docs/                           # long-form architecture/operations docs
-├── wiki/                           # repository orientation và pack maps
-├── test/                           # active-pack policy/routing tests
-└── tai-lieu-tham-khao/             # archived/reference implementation
-```
-
-## Kiểm thử thay đổi
-
-Focused active-pack checks:
+## Verification
 
 ```bash
-node test/agent-profile-routing.test.mjs
 node test/active-policy.test.mjs
+node test/agent-profile-routing.test.mjs
+node test/codex-policy.test.mjs
 node test/language-policy.test.mjs
-
-node --check pi-orchestration/install.mjs
-node --check claude-orchestration/install.mjs
-node --check codex-orchestration/install.mjs
-
+node test/uninstall.test.mjs
 git diff --check
 ```
 
-Preview installer trước khi ghi host config:
-
-```bash
-./install pi --dry-run --force
-./install claude --dry-run --force
-./install codex --dry-run --force
-```
-
-## Tài liệu chính
-
-- [`wiki/quickstart.md`](wiki/quickstart.md) — định hướng repository và change map.
-- [`wiki/architecture.md`](wiki/architecture.md) — role boundaries và enforcement model.
-- [`docs/agent-profiles.md`](docs/agent-profiles.md) — Agent Profiles, persistence và validation cycle.
-- [`docs/model-routing.md`](docs/model-routing.md) — strict model routing và runtime evidence.
-- [`docs/multi-host.md`](docs/multi-host.md) — routing qua nhiều Paseo daemon.
-- [`wiki/packs/pi-orchestration.md`](wiki/packs/pi-orchestration.md) — Pi pack internals.
-- [`wiki/packs/claude-orchestration.md`](wiki/packs/claude-orchestration.md) — Claude pack internals.
-- [`wiki/packs/codex-orchestration.md`](wiki/packs/codex-orchestration.md) — Codex pack internals.
-
-## Giới hạn bảo mật
-
-Tool allowlists, prompts và hooks là behavioral boundaries, không phải OS-level
-sandbox hoặc server-side ACL hoàn chỉnh. Chỉ vận hành các pack trên máy và
-repository tin cậy; không xem full-access runtime là quyền thực hiện merge,
-deploy, force-push, xóa dữ liệu hoặc hành động external khi Human chưa cấp quyền.
+Repository orientation and exact ownership: [`wiki/quickstart.md`](wiki/quickstart.md).

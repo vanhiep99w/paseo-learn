@@ -3,9 +3,9 @@
 /**
  * user-prompt-submit.mjs — Claude Code UserPromptSubmit hook entry.
  *
- * The Worker authority state is replaced atomically on every submitted prompt.
+ * The Peer authority state is replaced atomically on every submitted prompt.
  * A prompt without a valid V3 brief records read-only state. If the hook cannot
- * parse its event or persist the replacement state, it blocks that Worker turn
+ * parse its event or persist the replacement state, it blocks that Peer turn
  * (exit 2) instead of leaving an earlier write grant active.
  */
 
@@ -55,9 +55,9 @@ async function storeBrief(sessionId, brief) {
 }
 
 async function main() {
-	// Only Worker authority is turn-scoped. Avoid making unrelated roles depend
+	// Only Peer authority is turn-scoped. Avoid making unrelated roles depend
 	// on writable temporary storage.
-	if (process.env.PASEO_CLAUDE_ROLE?.trim().toLowerCase() !== "worker") {
+	if (process.env.PASEO_CLAUDE_ROLE?.trim().toLowerCase() !== "peer") {
 		process.exit(0);
 	}
 
@@ -67,13 +67,13 @@ async function main() {
 		event = raw.trim() ? JSON.parse(raw) : null;
 	} catch {
 		process.stderr.write(
-			"paseo-team-policy: invalid UserPromptSubmit event; blocking Worker turn fail-closed.\n",
+			"paseo-team-policy: invalid UserPromptSubmit event; blocking Peer turn fail-closed.\n",
 		);
 		process.exit(2);
 	}
 	if (typeof event !== "object" || event === null || typeof event.session_id !== "string") {
 		process.stderr.write(
-			"paseo-team-policy: UserPromptSubmit event has no session_id; blocking Worker turn fail-closed.\n",
+			"paseo-team-policy: UserPromptSubmit event has no session_id; blocking Peer turn fail-closed.\n",
 		);
 		process.exit(2);
 	}
@@ -85,7 +85,7 @@ async function main() {
 
 main().catch((error) => {
 	process.stderr.write(
-		`paseo-team-policy (user-prompt-submit): could not replace Worker authority state; turn blocked: ${error?.message ?? error}\n`,
+		`paseo-team-policy (user-prompt-submit): could not replace Peer authority state; turn blocked: ${error?.message ?? error}\n`,
 	);
 	process.exit(2);
 });

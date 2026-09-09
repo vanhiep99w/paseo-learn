@@ -79,7 +79,8 @@ const paseoConfigPath = path.join(paseoHome, "config.json");
 const preferencesPath = path.join(paseoHome, "orchestration-preferences.json");
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 
-const roles = ["lead", "worker", "reviewer", "supervisor"];
+const roles = ["lead", "peer", "supervisor"];
+const retiredRoles = ["worker", "reviewer"];
 const profileDefaultEnv = "PASEO_CLAUDE_AGENT_PROFILE_DEFAULT_JSON";
 
 const agentProfileSpecs = {
@@ -90,19 +91,12 @@ const agentProfileSpecs = {
 		notes:
 			"Use for Claude Lead planning, decomposition, and acceptance. This profile does not grant implementation authority.",
 	},
-	worker: {
-		name: "Claude Worker · Host default",
-		icon: "hammer",
+	peer: {
+		name: "Claude Peer · Host default",
+		icon: "users",
 		color: "amber",
 		notes:
-			"Use for bounded Claude Worker implementation after a valid current-turn V3 Task Brief.",
-	},
-	reviewer: {
-		name: "Claude Reviewer · Host default",
-		icon: "search",
-		color: "violet",
-		notes:
-			"Use for independent read-only review of an exact candidate SHA or the current working diff.",
+			"Use for one bounded Peer assignment. The V3 brief binds engineer/scout/architect/reviewer/shadow disposition; only engineer + MODE: write may mutate.",
 	},
 	supervisor: {
 		name: "Claude Supervisor · Host default",
@@ -247,6 +241,25 @@ function mergeManagedAgentProfiles(config, desiredProfiles) {
 	config.daemon.agentProfiles = next;
 }
 
+function retireLegacySLP(config) {
+	const profileIds = new Set(
+		retiredRoles.map((role) => `paseo-learn:claude:${role}:host-default`),
+	);
+	const profiles = config.daemon.agentProfiles ?? [];
+	const presentProfiles = profiles.filter((profile) => profileIds.has(profile?.id));
+	const providers = config.agents?.providers ?? {};
+	const presentProviders = retiredRoles.filter((role) => providers[`claude-${role}`]);
+	if ((presentProfiles.length || presentProviders.length) && !force) {
+		throw new Error(
+			"Legacy Worker/Reviewer pack state found; rerun with --force to migrate it to the three-role SLP topology",
+		);
+	}
+	if (presentProfiles.length) {
+		config.daemon.agentProfiles = profiles.filter((profile) => !profileIds.has(profile?.id));
+	}
+	for (const role of retiredRoles) delete providers[`claude-${role}`];
+}
+
 // Claude Code auth env to forward into every claude-* provider. Paseo does NOT
 // expand ${VAR} in provider env and does NOT forward the daemon's ambient env to
 // spawned provider processes — only the keys declared here reach the spawned
@@ -289,21 +302,13 @@ function providerConfig() {
 			command: [targetLauncher],
 			env: { ...env("lead"), PASEO_MCP_ACCESS: "lead" },
 		},
-		"claude-worker": {
+		"claude-peer": {
 			extends: "claude",
-			label: "Claude Worker",
+			label: "Claude Peer",
 			description:
-				"Bounded implementation agent. No Paseo MCP; write/commit/push authority comes only from the current-turn Task Brief.",
+				"One bounded Peer assignment. No Paseo MCP; V3 disposition plus mode control mutation authority.",
 			command: ["claude"],
-			env: env("worker"),
-		},
-		"claude-reviewer": {
-			extends: "claude",
-			label: "Claude Reviewer",
-			description:
-				"Independent review. No Paseo MCP; behaviorally read-only on an exact candidate SHA or the current working diff.",
-			command: ["claude"],
-			env: env("reviewer"),
+			env: env("peer"),
 		},
 		"claude-supervisor": {
 			extends: "claude",
@@ -324,19 +329,19 @@ const obsoletePreferences = [
 
 const defaultPreferences = {
 	providers: {
-		impl: "claude-worker",
-		ui: "claude-worker",
-		research: "claude-reviewer",
+		impl: "claude-peer",
+		ui: "claude-peer",
+		research: "claude-peer",
 		planning: "claude-lead",
-		audit: "claude-reviewer",
+		audit: "claude-peer",
 	},
 	preferences: [
-		"Use claude-lead for decomposition and acceptance, claude-worker for bounded writes in the current workspace, and claude-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+		"Use claude-lead for topology and acceptance, and claude-peer for one bounded disposition: engineer writes only with valid V3 scope; scout/architect/reviewer/shadow are read-only. No Beads or substitute tracker is active; assignments and handbacks in Paseo messages are work state.",
 		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Claude Lead routes to claude-* role providers. Use pi-* or codex-* only when the Human explicitly requests that provider family for the delegation. If the required Claude role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
 		"When list_profiles is available, treat a complete profile whose provider matches the chosen claude role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
 		"Discover provider/model availability on the target Paseo daemon with list_providers/list_models before creating an agent. Pin the exact model and settings.thinkingOptionId via get_agent_status. Never silently fall back.",
-		"Every subagent must inherit the Lead current workspace. Never pass workspace placement, call create_workspace, or run manual git worktree commands. Serialize Engineer and Reviewer; keep at most one active writer. Do not use claude-supervisor in ordinary single-task flows.",
+		"Every subagent must inherit the Lead current workspace. Never pass workspace placement, call create_workspace, or run manual git worktree commands. Serialize engineer Peer and reviewer Peer; keep at most one active writer. Do not use claude-supervisor in ordinary single-task flows."
 	],
 };
 
@@ -581,6 +586,7 @@ async function preparePaseoConfig(profiles) {
 	mergeManagedAgentProfiles(config, profiles);
 	config.agents ??= {};
 	config.agents.providers ??= {};
+	retireLegacySLP(config);
 	for (const [id, desired] of Object.entries(providerConfig())) {
 		const current = config.agents.providers[id];
 		if (

@@ -1,17 +1,8 @@
 {
-  "$comment": "Reviewer role. Claude Code plan mode plus explicit write/edit denials enforce read-only inspection; the hook additionally blocks git mutations and Paseo CLI use. No paseo MCP. Native Agent/Task tools + web denied.",
+  "$comment": "Peer role. No Paseo MCP. The CURRENT-turn V3 brief binds disposition and authority: only engineer + MODE: write can mutate within OWNED_SCOPE; scout/architect/reviewer/shadow remain non-mutating. Malformed hook state blocks the turn. Native Agent/Task tools + web denied.",
   "permissions": {
-    "defaultMode": "plan",
-    "deny": [
-      "Agent",
-      "Edit",
-      "Write",
-      "MultiEdit",
-      "NotebookEdit",
-      "Artifact",
-      "WebSearch",
-      "WebFetch"
-    ]
+    "defaultMode": "bypassPermissions",
+    "deny": ["Agent", "WebSearch", "WebFetch"]
   },
   "hooks": {
     "PreToolUse": [

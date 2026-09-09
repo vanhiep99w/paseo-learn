@@ -3,63 +3,55 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const repo = path.resolve(import.meta.dirname, "..");
-const read = (relativePath) => readFileSync(path.join(repo, relativePath), "utf8");
+const read = (file) => readFileSync(path.join(repo, file), "utf8");
 
-const roleContracts = [
-	...["lead", "worker", "reviewer", "supervisor"].map(
-		(role) => `pi-orchestration/profiles/${role}/AGENTS.md`,
-	),
-	...["lead", "worker", "reviewer", "supervisor"].map(
-		(role) => `claude-orchestration/profiles/${role}/CLAUDE.md`,
-	),
-	...["lead", "worker", "reviewer", "supervisor"].map(
-		(role) => `codex-orchestration/profiles/paseo-${role}.config.toml`,
-	),
+const sourceRolePrompts = [
+  "pi-orchestration/profiles/lead/AGENTS.md",
+  "pi-orchestration/profiles/peer/AGENTS.md",
+  "pi-orchestration/profiles/supervisor/AGENTS.md",
+  "claude-orchestration/profiles/lead/CLAUDE.md",
+  "claude-orchestration/profiles/peer/CLAUDE.md",
+  "claude-orchestration/profiles/supervisor/CLAUDE.md",
+  "codex-orchestration/profiles/paseo-lead.config.toml",
+  "codex-orchestration/profiles/paseo-peer.config.toml",
+  "codex-orchestration/profiles/paseo-supervisor.config.toml",
 ];
-
-for (const file of roleContracts) {
-	const source = read(file);
-	assert.match(
-		source,
-		/Use Vietnamese for every user-facing response and every agent-to-agent prompt/,
-		`${file} must require Vietnamese for Human and agent communication`,
-	);
-	assert.match(
-		source,
-		/Keep code, commands, paths, identifiers,[\s\S]{0,120}machine-readable tokens[\s\S]{0,40}original form/,
-		`${file} must preserve technical literals`,
-	);
-	assert.match(
-		source,
-		/Human explicitly requests another language/,
-		`${file} must retain the explicit Human language override`,
-	);
+for (const file of sourceRolePrompts) {
+  const text = read(file);
+  assert.match(text, /PASEO_LEARN_SLP 1\.0/);
+  assert.match(text, /Paseo/);
+  assert.match(text, /Use Vietnamese for Human-facing and agent-to-agent communication/);
+  assert.doesNotMatch(text, /Demonthorn Agent Orchestration Deep Dive|Giáo Án Herdr|daemon-pinned/);
 }
 
-for (const file of [
-	"pi-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md",
-	"claude-orchestration/profiles/lead/skills/paseo-team-lead/SKILL.md",
-	"pi-orchestration/templates/TASK_BRIEF.md",
-	"claude-orchestration/templates/TASK_BRIEF.md",
-]) {
-	const source = read(file);
-	assert.match(source, /prose task body[\s\S]{0,100}agent-to-agent follow-up[\s\S]{0,40}Vietnamese/);
-	assert.match(source, /marker names, field keys, code,[\s\S]{0,100}(unchanged|original form)/);
+for (const file of sourceRolePrompts.filter((file) => /lead/i.test(file))) {
+  const text = read(file);
+  assert.match(text, /smallest useful topology/);
+  assert.match(text, /ACCEPT.*REOPEN.*REJECT.*UNKNOWN/s);
+  assert.match(text, /Do not poll unchanged state/);
+  assert.match(text, /Human decisions required/);
 }
 
-for (const file of [
-	"pi-orchestration/install.mjs",
-	"claude-orchestration/install.mjs",
-	"codex-orchestration/install.mjs",
-]) {
-	assert.match(
-		read(file),
-		/Use Vietnamese for every user-facing response and every agent-to-agent prompt/,
-		`${file} must install the language preference`,
-	);
+for (const file of sourceRolePrompts.filter((file) => /peer/i.test(file))) {
+  const text = read(file);
+  assert.match(text, /Disposition behavior/);
+  assert.match(text, /engineer[\s\S]*scout[\s\S]*architect[\s\S]*reviewer[\s\S]*shadow/i);
+  assert.match(text, /Decision\/dependency required/);
+  assert.match(text, /Never self-accept/);
 }
 
-assert.match(read("README.md"), /Tiếng Việt là ngôn ngữ giao tiếp mặc định/);
-assert.match(read("wiki/architecture.md"), /Vietnamese is the default interaction language/);
-
-console.log("[paseo-team] Vietnamese language policy tests passed");
+for (const file of sourceRolePrompts.filter((file) => /supervisor/i.test(file))) {
+  const text = read(file);
+  assert.match(text, /Missing recovery or replacement authority means observe and advise only/);
+  assert.match(text, /SUSPECTED MECHANISM/);
+  assert.match(text, /Do not intervene for style preferences/);
+  assert.match(text, /Smallest recommendation/);
+}
+for (const file of ["pi-orchestration/templates/TASK_BRIEF.md", "claude-orchestration/templates/TASK_BRIEF.md"]) {
+  const text = read(file);
+  assert.match(text, /prose task body[\s\S]{0,100}agent-to-agent follow-up[\s\S]{0,40}Vietnamese/);
+  assert.match(text, /DISPOSITION: engineer/);
+}
+assert.match(read("README.md"), /Không dùng Beads/);
+assert.match(read("wiki/architecture.md"), /Work state without Beads/);
+console.log("[paseo-team] upstream role-prompt and SLP docs tests passed");

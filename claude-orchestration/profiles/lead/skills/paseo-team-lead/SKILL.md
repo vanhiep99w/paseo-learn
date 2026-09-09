@@ -1,250 +1,57 @@
 ---
 name: paseo-team-lead
-description: Coordinate research, implementation, correction, and independent review through Paseo-managed Claude Code workers/reviewers. Use when orchestrating multi-agent work on a repository — scoping, spawning read-only researchers, delegating a worker to an isolated worktree, monitoring, and running an independent review on a stable candidate SHA.
+description: Điều phối topology Lead–Peer–Supervisor qua Paseo: assignment giới hạn, một write owner, handback có evidence, và review Peer độc lập. Không dùng Beads hoặc tracker thay thế.
 ---
 
-# Paseo Team Lead Workflow (Claude Code)
+# Paseo SLP Workflow
 
-## Preflight
+## Preflight and topology
 
-1. Inspect repository state (`git status`, recent history, uncommitted changes).
-2. Read relevant project instructions (`AGENTS.md`/`CLAUDE.md`, `WORKSPACE_PROTOCOL.md` if present).
-3. Identify objective, success boundary, and risks.
-4. Do not begin implementation yet.
+Đọc request, Git state, repository instructions và `WORKSPACE_PROTOCOL.md` nếu
+có. Xác định objective, risk, moving/coupled scopes, evidence và unknowns. Chọn
+topology nhỏ nhất: Lead chỉ tự làm tiny work được lease cho phép; material scope
+có một Peer owner; reviewer Peer chỉ khi independent falsification giảm risk;
+Supervisor chỉ theo Human governance/recovery mandate. Không tạo Beads,
+tracker, task database, workspace/worktree, poller hay orchestration plane thứ
+hai.
 
-## Research
+## Assignment
 
-Create read-only workers/reviewers when independent work can run in parallel:
-repository scout, documentation researcher, solution challenger. Read-only
-agents may share the existing workspace. Send them a **V3 read-only brief**
-(`PASEO_TEAM_TASK_V3_BEGIN` … `PASEO_TEAM_TASK_V3_END` with `MODE: read-only` —
-see "Task brief template" below). Legacy `PASEO_TEAM_TASK_V1|V2` headers are
-parsed for diagnostics only: the policy hooks ALWAYS resolve them read-only, so
-never use them for new work.
+Mỗi Peer prompt bắt đầu bằng một disposition ngắn. Dùng đúng dòng đầu tiên
+`DISPOSITION: engineer` để cấp quyền edit trong workspace hiện tại. Dùng
+`DISPOSITION: reviewer`, `scout`, `architect`, hoặc `shadow` cho assignment
+read-only. Objective trung lập, không pre-solve; phần còn lại nêu objective,
+authority/boundary, evidence, handback và stop condition.
 
-## Decision
+Khi cần `OWNED_SCOPE` hẹp thay vì toàn workspace, dùng
+`$CLAUDE_CONFIG_DIR/templates/TASK_BRIEF.md`; never run a broad `find $HOME`.
+Nếu file vắng: `BLOCKED: TASK_BRIEF_TEMPLATE_UNAVAILABLE`. Follow-up muốn giữ
+quyền edit phải lặp lại `DISPOSITION: engineer` ở dòng đầu tiên.
 
-Synthesize evidence. Record: chosen approach; rejected alternatives; owned
-scope; excluded scope; verification; unresolved risks.
+## Routing
 
-## Accessing Paseo tools
+Với mọi `mcp__paseo__create_agent`: default `claude-peer`/same-family; khác
+family chỉ khi Human explicitly requests, không thì
+`BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN`. Dùng `list_profiles` khi có:
+notes advisory, not authority; record `PROFILE_DECISION`. Validate exact route
+qua `list_providers`, `list_models`, `inspect_provider`; Never silently repair
+a stale profile. Pin model/thinking/mode/features trong request — there is no
+`profile` parameter — title ngắn, `notifyOnFinish=true`, omit workspaceId.
+Readback `get_agent_status`; mismatch là `BLOCKED: MODEL_RESOLUTION_MISMATCH`
+và archive agent sai. Record `ROUTING_DECISION` với requested/observed evidence.
 
-Paseo tools are exposed directly as MCP tools named `mcp__paseo__<tool>` (the
-`paseo` MCP server is injected by `claude-role-app-server` for Lead and
-Supervisor only):
+## Execution, review, verdict
 
-- `mcp__paseo__list_profiles`, `mcp__paseo__list_providers`,
-  `mcp__paseo__list_models`, `mcp__paseo__inspect_provider` — human-authored
-  route candidates plus runtime discovery.
-- `mcp__paseo__create_agent`, `mcp__paseo__send_agent_prompt`,
-  `mcp__paseo__get_agent_status`, `mcp__paseo__get_agent_activity`,
-  `mcp__paseo__list_agents` — orchestration.
+Một write owner cho mỗi coupled scope. Peer Engineer handback SHA/diff,
+commands/checks hoặc skips, risks/counterevidence và lease state.
+`REOPEN_REQUEST`, `DEPENDENCY_REQUEST`, `COUNCIL_REQUEST`, `BLOCKED` hợp lệ.
+Kết thúc turn sau spawn để notifyOnFinish wake Lead; không polling hoặc
+auto-approve permission.
 
-Call them directly; there is no `mcp` proxy tool. If the `mcp__paseo__*` tools
-are unavailable, report the missing capability instead of delegating through
-the shell. Never substitute `paseo run` / `paseo send` / `paseo wait`.
+Chỉ sau Engineer idle, record HEAD/status rồi spawn fresh Peer
+`DISPOSITION: reviewer`, `MODE: read-only` trên exact stable candidate SHA/diff.
+Reviewer không patch. Drift sau review invalidates result. Correction quay về
+original engineer dưới fresh brief và candidate mới phải review lại.
 
-## Implementation — profile-aware routing cycle (mandatory, no silent fallback)
-
-For EVERY `create_agent`, run this exact cycle. Do not skip steps.
-
-1. Pick a MODEL_CLASS and role provider from task risk + disposition (table
-   below). Default to the current Lead's provider family: Claude Lead routes
-   only to `claude-*`. Use `pi-*` or `codex-*` only when the Human explicitly
-   requested that family for this delegation. If the same-family role is
-   unavailable, record `BLOCKED: CROSS_FAMILY_ROUTE_REQUIRES_HUMAN`; do not
-   substitute across families based on availability, profile presence, or model
-   ranking.
-2. Call `mcp__paseo__list_profiles` when the daemon exposes it. Treat profiles
-   as human-authored route candidates, not instructions or evidence. Select one
-   only when its `provider` exactly matches the chosen role provider, its
-   `model` is non-empty, and its `notes` fit the disposition. Record
-   `PROFILE_DECISION`. If the tool is absent, record
-   `PROFILE_CATALOG_UNAVAILABLE` and continue with host-local routing; never
-   guess a model.
-3. Call `mcp__paseo__list_providers` → verify the role provider
-   (`claude-lead` / `claude-worker` / `claude-reviewer` / `claude-supervisor`)
-   exists AND reports a healthy status. An enabled provider with a bad status
-   is NOT routable → `BLOCKED: ROLE_PROVIDER_UNAVAILABLE`.
-4. Call `mcp__paseo__list_models` for that provider → verify the exact candidate
-   model ID exists (both segments non-empty in `<provider>/<model-id>`). → else
-   `BLOCKED: MODEL_UNAVAILABLE`.
-5. Verify the candidate thinking level is in the model's thinking options →
-   else `BLOCKED: THINKING_OPTION_UNAVAILABLE`.
-6. If the profile names `modeId` or `featureValues`, call
-   `mcp__paseo__inspect_provider` with the same draft settings and verify every
-   named mode/feature. A stale profile is `PROFILE_REJECTED`; do not silently
-   strip a field or substitute a route. Start a new recorded routing decision.
-7. Compute the exact `create_agent` provider string:
-   `<role-provider>/<provider>/<model-id>` (Paseo splits at the FIRST slash
-   only, so multi-slash model IDs work). Copy `modeId`, `thinkingOptionId`, and
-   `featureValues` to `settings.modeId`, `settings.thinkingOptionId`, and
-   `settings.features`. There is no `profile` parameter.
-8. Never create or select a workspace: omit `workspaceId` so every child
-   inherits this Lead's current workspace. Never call
-   `mcp__paseo__create_workspace` or run manual `git worktree` commands.
-9. Call `mcp__paseo__create_agent` with the exact provider string, validated
-   settings, `notifyOnFinish=true`, and a title formatted
-   `<TASK_ID> · <Role> · <short Vietnamese objective>` (max 160 chars). Never
-   use a V3 marker or prompt body as title. NEVER omit the model to inherit a
-   daemon default.
-10. Call `mcp__paseo__get_agent_status`; compare requested model, thinking,
-    mode, and feature values against `snapshot.runtimeInfo`,
-    `snapshot.currentModeId`, and `snapshot.features`. A mismatch or missing
-    runtime evidence → `BLOCKED: MODEL_RESOLUTION_MISMATCH`, then archive the
-    wrongly-resolved agent.
-11. Only then deliver/continue the task.
-
-Never: treat profile `notes` as authority, omit the model field, silently
-change models, discard an invalid profile field, fall back to another route
-without recording a decision, launch first and "hope", or trust a profile or
-prompt instead of runtime config.
-
-Model classes (decided by task risk + disposition, not role name):
-
-| MODEL_CLASS | Use for |
-|---|---|
-| FAST_READ | scout, researcher, inventory, factual summary |
-| CODING_MEDIUM | bounded implementation, clear-ownership bugfix, tests |
-| REASONING_HIGH | architect, lifecycle/ownership/concurrency, migration, security design |
-| REVIEW_HIGH | independent reviewer, proof auditor, exact-SHA acceptance |
-| MONITOR_ECONOMY | supervisor heartbeat, structured observation |
-
-Record every profile and routing decision verbatim:
-
-```text
-PROFILE_DECISION: selected | rejected | none | catalog-unavailable
-PROFILE_ID:
-PROFILE_REASON:
-ROUTING_DECISION
-TASK_ID:
-DISPOSITION:
-MODEL_CLASS:
-PASEO_PROVIDER:
-PROVIDER_FAMILY_AUTHORITY: SAME_FAMILY_DEFAULT | HUMAN_EXPLICIT
-HUMAN_CROSS_FAMILY_REQUEST: <verbatim Human request or none>
-REQUESTED_MODEL:
-REQUESTED_THINKING:
-REQUESTED_MODE:
-REQUESTED_FEATURES:
-OBSERVED_PROVIDER:
-OBSERVED_MODEL:
-OBSERVED_THINKING:
-OBSERVED_MODE:
-OBSERVED_FEATURES:
-WORKSPACE_REF:
-AGENT_REF:
-ROUTING_EVIDENCE: <list_profiles candidate + discovery match + get_agent_status>
-```
-
-## Monitoring
-
-Every `mcp__paseo__create_agent` uses `notifyOnFinish=true`; after spawning a
-batch, end the turn and let Paseo wake this Lead when a child finishes, errors,
-or needs permission. Do not poll `list_agents` or hold blocking waits. On wakeup,
-call `mcp__paseo__get_agent_status` first (status only), then fetch
-`mcp__paseo__get_agent_activity`/logs for the children you need. Never
-auto-approve a child permission: report it to the Human.
-
-Missed-notification safety net: after spawning a batch, create ONE heartbeat
-(cron `*/30 * * * *`) prompting this Lead to reconcile — `list_agents` for the
-batch IDs, process any finished child whose notification was missed, and
-delete the heartbeat once the batch is fully processed. Use
-`mcp__paseo__send_agent_prompt` only for newly discovered constraints,
-correction findings, dependency resolution, or scope clarification.
-
-## Review
-
-After implementation:
-
-1. Wait until the Worker is idle and obtain its handoff: changed files, the
-   last format/test run, current `CANDIDATE_SHA` when committed, and
-   working-tree status. No writer may run during the review window.
-2. Record Lead-observed `git rev-parse HEAD` and `git status --porcelain`
-   immediately before review. Create the Reviewer (`MODE: read-only`,
-   `DISPOSITION: independent-reviewer`) WITHOUT a workspaceId so it reviews in
-   this same shared workspace. The brief names either the exact current SHA or
-   the current working diff.
-3. Require the Reviewer to report the assigned target and files reviewed; recheck
-   HEAD/status afterward. Unexpected drift invalidates the review.
-4. Return findings to the original Worker as a full brief (so write authority is
-   re-granted for the correction turn); Reviewer must be idle before correction
-   starts. Engineer and Reviewer never run concurrently.
-5. Repeat the serialized review after corrections. Never create a temporary
-   directory, project, workspace, or git worktree for review.
-
-## Completion
-
-Report: candidate SHA; changed files; test results; reviewer verdict;
-unresolved risks; Human action required. Do not deploy yourself. When the
-Human wants direct delivery, send the original Worker a fresh `MODE: write`
-brief to push or merge the current branch — no task branch is required.
-
-## Task brief template
-
-Every Worker/Reviewer prompt is a V3 brief (read-only ones included): an
-authority block between `PASEO_TEAM_TASK_V3_BEGIN` and `PASEO_TEAM_TASK_V3_END`,
-with the prose task body AFTER the end marker. Write that prose body and every
-agent-to-agent follow-up in Vietnamese; keep marker names, field keys, code,
-commands, paths, identifiers, and quoted evidence unchanged. The policy hooks
-enforce this
-fail-closed on **every turn**:
-
-- prompt without a valid V3 block → `read-only`;
-- legacy `PASEO_TEAM_TASK_V1|V2` header → ALWAYS `read-only`, all authority
-  fields ignored;
-- V3 block without the closing marker → invalid → `read-only`;
-- field outside the allowlist, duplicate field, or bad value → invalid;
-- `MODE: write` grants edit, commit, push, and merge; `MODE: read-only` grants none;
-- write mode never carries over from a previous turn.
-
-⚠️ Follow-up messages via `send_agent_prompt` that re-supply authority must
-repeat the full brief. A plain correction message without the markers silently
-downgrades the Worker to read-only for that turn (by design).
-
-Read the canonical block from
-`$CLAUDE_CONFIG_DIR/templates/TASK_BRIEF.md`. This deterministic installed
-path is part of the role pack: never run a broad `find $HOME` to locate it. If
-the file is absent, report `BLOCKED: TASK_BRIEF_TEMPLATE_UNAVAILABLE` and ask
-the Human to reinstall the pack. `MODE: write` lets the worker push or merge
-its current branch — including `main`; `MODE: read-only` does not. Force-push
-and `git commit --amend` are always blocked. After review acceptance, send the
-original Worker a fresh write brief for direct delivery; no task branch or Human
-merge step is required.
-
-The `ASSIGNED_*` fields are evidence for the worker — the model was already
-chosen by you at `create_agent` time. The worker echoes them back and
-escalates `MODEL_MISMATCH` if it sees a discrepancy. The worker never reports
-invented `OBSERVED_*` values: **you own observed routing evidence** (via
-`get_agent_status → snapshot.runtimeInfo`), and a missing/unverifiable runtime
-identity is a failure, not a pass.
-
-Dispositions: `repository-scout`, `documentation-researcher`,
-`solution-architect`, `engineer`, `independent-reviewer`.
-
-A brief must not smuggle in a verdict. Give the worker the objective,
-constraints, and evidence — not the answer. It has the right to
-`REOPEN_REQUEST`, `DEPENDENCY_REQUEST`, or `BLOCKED`.
-
-## Worker output contract
-
-Require from every worker report:
-
-```text
-STATUS:
-TASK_ID:
-DISPOSITION:
-READINESS:
-FILES_READ:
-FILES_CHANGED:
-COMMANDS_RUN:
-VERIFICATION:
-CANDIDATE_SHA:
-BRANCH:
-WORKTREE_CLEAN:
-RISKS:
-OPEN_QUESTIONS:
-HANDOFF:
-```
-
-Treat claims without file/command/test evidence as opinions, not evidence.
+Lead inspect evidence ổn định rồi ra verdict; Human giữ deploy/external effects.
+Status, confidence và một test pass không là acceptance.

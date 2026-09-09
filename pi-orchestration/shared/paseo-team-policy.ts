@@ -2,7 +2,7 @@
  * paseo-team-policy.ts — role policy extension for the Paseo + Pi role pack
  * (pi-orchestration), 4-role layout.
  *
- * Reads PASEO_PI_ROLE (lead | worker | reviewer | supervisor) and enforces a
+ * Reads PASEO_PI_ROLE (lead | peer | supervisor) and enforces a
  * per-role tool allowlist via setActiveTools() plus a fail-closed backstop in
  * the tool_call event. It is the hard enforcement layer that complements the
  * instruction-level role boundaries in each role's AGENTS.md.
@@ -13,12 +13,12 @@
  *
  * Selective Paseo MCP exposure is handled one layer up: only lead/supervisor
  * are launched through pi-role-app-server (which sets PASEO_MCP_URL), and only
- * their mcp.json contains a paseo server entry. Worker/reviewer have no paseo
+ * their mcp.json contains a paseo server entry. Peers have no paseo
  * server, so even though this extension lets the `mcp` proxy tool through for
- * lead/supervisor only, the worker/reviewer mcp proxy has no server to reach.
+ * lead/supervisor only, the peer mcp proxy has no server to reach.
  *
  * Fail-closed invariants:
- *   - Worker write/commit/push authority is derived from the CURRENT prompt's
+ *   - Peer write/commit/push authority is derived from the CURRENT prompt's
  *     strict V3 task brief (PASEO_TEAM_TASK_V3_BEGIN/END) on every
  *     before_agent_start. Legacy V1/V2 briefs never grant write or authority.
  *     A turn without a valid V3 brief is read-only — write mode never leaks
@@ -49,13 +49,12 @@ import path, { join } from "node:path";
 // Role detection
 // ---------------------------------------------------------------------------
 
-export type TeamRole = "lead" | "worker" | "reviewer" | "supervisor";
+export type TeamRole = "lead" | "peer" | "supervisor";
 export type WorkerMode = "write" | "read-only";
 
 export function detectRole(): TeamRole | undefined {
 	const raw = process.env.PASEO_PI_ROLE?.trim().toLowerCase();
-	return raw === "lead" || raw === "worker" || raw === "reviewer" ||
-		raw === "supervisor"
+	return raw === "lead" || raw === "peer" || raw === "supervisor"
 		? (raw as TeamRole)
 		: undefined;
 }
@@ -141,18 +140,13 @@ export function policyFor(
 				],
 				deny: [],
 			};
-		case "worker":
+		case "peer":
 			return workerMode === "write"
 				? { allow: [...PI_WRITE], deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS] }
 				: {
 						allow: [...PI_STRICT_READ_ONLY],
 						deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS, "write", "edit", "bash"],
 					};
-		case "reviewer":
-			return {
-				allow: [...PI_STRICT_READ_ONLY],
-				deny: [...ALL_PASEO_TOOLS, ...MCP_TOOLS, "write", "edit", "bash"],
-			};
 		case "supervisor":
 			return {
 				allow: ["read", "mcp", ...PASEO_TOOLS.monitoring, "send_agent_prompt"],
@@ -162,7 +156,7 @@ export function policyFor(
 }
 
 /**
- * Effective worker policy for the CURRENT turn. MODE: write grants write/edit
+ * Effective Peer policy for the CURRENT turn. MODE: write grants write/edit
  * only when the brief also grants edit authority: an explicit
  * V3 per-operation authority fields are accepted only for backward compatibility
  * and are ignored; MODE is the sole mutable authority switch.
@@ -181,25 +175,22 @@ export function denyReason(
 	toolName: string,
 ): string {
 	if (
-		(role === "worker" || role === "reviewer") &&
+		role === "peer" &&
 		(toolName === "mcp" || toolName === "mcp_script")
 	) {
 		return `${role} cannot use the MCP proxy (it would expose Paseo orchestration tools). Report a DEPENDENCY_REQUEST to the Lead instead.`;
 	}
 	if (
-		(role === "worker" || role === "reviewer") &&
+		role === "peer" &&
 		matchesPaseoToolName(toolName, ALL_PASEO_TOOLS)
 	) {
 		return `${role} cannot orchestrate agents or manage workspaces. Report a DEPENDENCY_REQUEST to the Lead instead.`;
 	}
-	if (role === "worker" && workerMode !== "write" &&
+	if (role === "peer" && workerMode !== "write" &&
 		(toolName === "write" || toolName === "edit")) {
-		return "This Worker session is read-only (MODE: read-only). Propose the change in your report instead of editing files.";
+		return "This Peer session is read-only (MODE: read-only). Propose the change in your report instead of editing files.";
 	}
-	if (role === "reviewer" && (toolName === "write" || toolName === "edit")) {
-		return "Reviewer is strictly read-only. Report findings instead of editing files.";
-	}
-	if ((role === "reviewer" || (role === "worker" && workerMode !== "write")) && toolName === "bash") {
+	if ((role === "peer" && workerMode !== "write") && toolName === "bash") {
 		return `${role} has no shell authority on a read-only turn. Use the read tool and report any verification that requires command execution.`;
 	}
 	if (role === "supervisor" && (toolName === "write" || toolName === "edit")) {
@@ -215,7 +206,7 @@ export function denyReason(
 }
 
 // ---------------------------------------------------------------------------
-// Bash CLI guard — workers/reviewers must not drive Paseo from the shell to
+// Bash CLI guard — peers must not drive Paseo from the shell to
 // bypass the tool policy. Heuristic only; not an authorization boundary.
 // ---------------------------------------------------------------------------
 
@@ -280,9 +271,7 @@ export function mcpAllowedTargets(role: TeamRole): string[] {
 			return SUPERVISOR_ALLOWED_MCP_TARGETS;
 		case "lead":
 			return LEAD_ALLOWED_MCP_TARGETS;
-		case "worker":
-		case "reviewer":
-			return [];
+		case "peer":
 	}
 }
 
@@ -329,7 +318,7 @@ export function supervisorCreateAgentBlockReason(input: unknown): string | null 
 	const rec = args as Record<string, unknown>;
 	const provider = typeof rec.provider === "string" ? rec.provider : "";
 	if (!/^pi-lead\/[^/]+\/[^/]+/.test(provider)) {
-		return `Supervisor create_agent is lead-recovery only: provider must be "pi-lead/<pi-provider>/<model-id>" (got "${provider || "<missing>"}"). Workers/Reviewers and other providers are created by the Lead, never by the Supervisor.`;
+		return `Supervisor create_agent is lead-recovery only: provider must be "pi-lead/<pi-provider>/<model-id>" (got "${provider || "<missing>"}"). Peers and other providers are created by the Lead, never by the Supervisor.`;
 	}
 	const labels = rec.labels;
 	if (typeof labels !== "object" || labels === null) {
@@ -416,6 +405,7 @@ const BRIEF_HEADER_RE = /^PASEO_TEAM_TASK_V([12])$/;
 const V3_BEGIN = "PASEO_TEAM_TASK_V3_BEGIN";
 const V3_END = "PASEO_TEAM_TASK_V3_END";
 const BRIEF_FIELD_RE = /^([A-Z][A-Z0-9_]*):\s*(.*)$/;
+const SIMPLE_DISPOSITION_RE = /^DISPOSITION:\s*(engineer|scout|architect|reviewer|shadow)\s*$/i;
 const AUTHORITY_FIELDS = [
 	"EDIT_AUTHORITY",
 	"COMMIT_AUTHORITY",
@@ -424,6 +414,16 @@ const AUTHORITY_FIELDS = [
 	"MERGE_AUTHORITY",
 	"DEPLOY_AUTHORITY",
 ] as const;
+
+export type PeerDisposition = "engineer" | "scout" | "architect" | "reviewer" | "shadow";
+
+export const PEER_DISPOSITIONS: readonly PeerDisposition[] = [
+	"engineer",
+	"scout",
+	"architect",
+	"reviewer",
+	"shadow",
+];
 
 const V3_ALLOWED_FIELDS = new Set([
 	"TASK_ID",
@@ -526,6 +526,13 @@ function parseV3Brief(lines: string[]): ParsedTaskBrief {
 			malformed.push(`invalid MODE value "${rawMode}"`);
 		}
 	}
+	const rawDisposition = fields.get("DISPOSITION");
+	const disposition = rawDisposition?.toLowerCase();
+	if (rawDisposition === undefined) {
+		malformed.push("missing DISPOSITION field");
+	} else if (!PEER_DISPOSITIONS.includes(disposition as PeerDisposition)) {
+		malformed.push(`invalid DISPOSITION value "${rawDisposition}"`);
+	}
 	for (const field of AUTHORITY_FIELDS) {
 		const value = fields.get(field);
 		if (value !== undefined) {
@@ -537,6 +544,9 @@ function parseV3Brief(lines: string[]): ParsedTaskBrief {
 	}
 	if (mode === "write" && normalizeOwnedScope(fields.get("OWNED_SCOPE")) === null) {
 		malformed.push("MODE: write requires a valid workspace-relative OWNED_SCOPE");
+	}
+	if (mode === "write" && disposition !== "engineer") {
+		malformed.push("MODE: write is valid only for DISPOSITION: engineer");
 	}
 	if (malformed.length > 0) return failClosed();
 	return { version: 3, mode, malformed, fields };
@@ -551,6 +561,17 @@ export function parseTaskBrief(prompt: string): ParsedTaskBrief | null {
 	const firstNonEmpty = lines.map((l) => l.trim()).find((l) => l.length > 0);
 	if (!firstNonEmpty) return null;
 	if (firstNonEmpty === V3_BEGIN) return parseV3Brief(lines);
+	const simpleDisposition = firstNonEmpty.match(SIMPLE_DISPOSITION_RE)?.[1]?.toLowerCase();
+	if (simpleDisposition) {
+		const fields = new Map<string, string>([
+			["DISPOSITION", simpleDisposition],
+			["MODE", simpleDisposition === "engineer" ? "write" : "read-only"],
+		]);
+		// The one-line transport deliberately grants the Engineer the current
+		// workspace. Use a V3 brief when a narrower OWNED_SCOPE is required.
+		if (simpleDisposition === "engineer") fields.set("OWNED_SCOPE", ".");
+		return { version: 3, mode: simpleDisposition === "engineer" ? "write" : "read-only", malformed: [], fields };
+	}
 	const headerMatch = firstNonEmpty.match(BRIEF_HEADER_RE);
 	if (!headerMatch || !headerMatch[1]) return null;
 	const version: BriefVersion = headerMatch[1] === "2" ? 2 : 1;
@@ -705,23 +726,13 @@ function detectForcePush(command: string): boolean {
 }
 
 
-/** Reviewer is always all-false: never commit/push/merge/amend/force-push. */
-const REVIEWER_AUTHORITY: WorkerGitAuthority = {
-	edit: false,
-	commit: false,
-	push: false,
-	forcePush: false,
-	merge: false,
-	deploy: false,
-};
-
 export function gitAuthorityBlockReason(
 	command: string,
 	authority: WorkerGitAuthority,
 	taskId?: string,
 ): string | null {
 	if (detectForcePush(command)) {
-		return "FORCE_PUSH_AUTHORITY is always denied for Workers/Reviewers (including -f/-uf/-fu, --force*= and +refspec forms). Ask the Lead to update the brief.";
+		return "FORCE_PUSH_AUTHORITY is always denied for Peers (including -f/-uf/-fu, --force*= and +refspec forms). Ask the Lead to update the brief.";
 	}
 	if (GIT_AMEND_RE.test(command)) {
 		return "git commit --amend is always denied: a branch must advance by NEW commits so the SHA chain stays reviewable. Create a new correction commit.";
@@ -741,7 +752,7 @@ export function gitAuthorityBlockReason(
 }
 
 // ---------------------------------------------------------------------------
-// Per-turn worker state — recomputed from the current prompt every
+// Per-turn Peer state — recomputed from the current prompt every
 // before_agent_start. Never sticky across turns.
 // ---------------------------------------------------------------------------
 
@@ -803,7 +814,7 @@ function registerDebugCommands(pi: ExtensionAPI, r: TeamRole | undefined) {
 					}`
 				: "brief=none";
 			ctx.ui.notify(
-				`role=${r} workerMode=${currentWorkerMode()} ${briefInfo}\n${describePolicy(currentPolicy(r))}`,
+				`role=${r} peerMode=${currentWorkerMode()} ${briefInfo}\n${describePolicy(currentPolicy(r))}`,
 				"info",
 			);
 		},
@@ -847,7 +858,7 @@ export default function (pi: ExtensionAPI) {
 	const r: TeamRole = activeRole;
 
 	console.log(
-		`[paseo-team] role=${r} workerMode=${currentWorkerMode()} policy=${describePolicy(currentPolicy(r))}`,
+		`[paseo-team] role=${r} peerMode=${currentWorkerMode()} policy=${describePolicy(currentPolicy(r))}`,
 	);
 
 	pi.on("session_start", () => {
@@ -856,7 +867,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event) => {
-		if (r === "worker") {
+		if (r === "peer") {
 			// Recompute authority from THIS prompt — never inherit from an
 			// earlier turn. Missing/malformed brief → read-only.
 			currentBrief = parseTaskBrief(event.prompt);
@@ -876,7 +887,7 @@ export default function (pi: ExtensionAPI) {
 		const policy = currentPolicy(r);
 		if (policy.deny.includes(event.toolName)) {
 			if (
-				r === "worker" &&
+				r === "peer" &&
 				workerMode === "write" &&
 				(event.toolName === "write" || event.toolName === "edit")
 			) {
@@ -889,14 +900,14 @@ export default function (pi: ExtensionAPI) {
 			return { block: true, reason: denyReason(r, workerMode, event.toolName) };
 		}
 		if (
-			r === "worker" &&
+			r === "peer" &&
 			(isToolCallEventType("write", event) || isToolCallEventType("edit", event))
 		) {
 			const scopeBlock = ownedScopeBlockReason(currentBrief, event.input.path, ctx.cwd);
 			if (scopeBlock) return { block: true, reason: scopeBlock };
 		}
 		if (isToolCallEventType("mcp", event)) {
-			if (r === "worker" || r === "reviewer") {
+			if (r === "peer") {
 				return {
 					block: true,
 					reason: `${r} cannot use the MCP proxy (it would expose Paseo orchestration tools). Report a DEPENDENCY_REQUEST to the Lead instead.`,
@@ -925,7 +936,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		if (
-			(r === "worker" || r === "reviewer") &&
+			r === "peer" &&
 			isToolCallEventType("bash", event)
 		) {
 			const command = event.input.command ?? "";
@@ -935,11 +946,8 @@ export default function (pi: ExtensionAPI) {
 					reason: `${r} cannot drive the Paseo CLI from bash (would bypass the tool policy). Report a DEPENDENCY_REQUEST to the Lead instead.`,
 				};
 			}
-			const authority =
-				r === "reviewer"
-					? REVIEWER_AUTHORITY
-					: workerGitAuthority(currentBrief);
-			const taskId = r === "reviewer" ? undefined : currentBrief?.fields.get("TASK_ID");
+			const authority = workerGitAuthority(currentBrief);
+			const taskId = currentBrief?.fields.get("TASK_ID");
 			const gitBlockReason = gitAuthorityBlockReason(command, authority, taskId);
 			if (gitBlockReason) return { block: true, reason: gitBlockReason };
 		}

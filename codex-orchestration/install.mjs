@@ -56,17 +56,12 @@ const preferencesPath = path.join(
 );
 const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
 
-const profileNames = [
-	"paseo-lead",
-	"paseo-worker",
-	"paseo-reviewer",
-	"paseo-supervisor",
-];
+const profileNames = ["paseo-lead", "paseo-peer", "paseo-supervisor"];
+const retiredRoles = ["worker", "reviewer"];
 
 const roleByProfile = {
 	"paseo-lead": "lead",
-	"paseo-worker": "worker",
-	"paseo-reviewer": "reviewer",
+	"paseo-peer": "peer",
 	"paseo-supervisor": "supervisor",
 };
 
@@ -84,21 +79,13 @@ function providerConfig() {
 				PASEO_CODEX_ROLE: "lead",
 			},
 		},
-		"codex-worker": {
+		"codex-peer": {
 			extends: "codex",
-			label: "Codex Worker",
+			label: "Codex Peer",
 			description:
-				"Full-access implementation agent bounded by its Task Brief",
+				"One bounded Peer assignment; V3 disposition plus mode control mutation authority",
 			command: ["codex"],
-			env: { CODEX_HOME: path.join(rolesHome, "worker"), PASEO_CODEX_ROLE: "worker" },
-		},
-		"codex-reviewer": {
-			extends: "codex",
-			label: "Codex Reviewer",
-			description:
-				"Full-access runtime with behaviorally read-only review instructions",
-			command: ["codex"],
-			env: { CODEX_HOME: path.join(rolesHome, "reviewer"), PASEO_CODEX_ROLE: "reviewer" },
+			env: { CODEX_HOME: path.join(rolesHome, "peer"), PASEO_CODEX_ROLE: "peer" },
 		},
 		"codex-supervisor": {
 			extends: "codex",
@@ -123,21 +110,20 @@ const obsoletePreferences = [
 
 const defaultPreferences = {
 	providers: {
-		impl: "codex-worker/gpt-5.6-luna",
-		ui: "codex-worker/gpt-5.6-luna",
-		research: "codex-reviewer/gpt-5.6-luna",
+		impl: "codex-peer/gpt-5.6-luna",
+		ui: "codex-peer/gpt-5.6-luna",
+		research: "codex-peer/gpt-5.6-luna",
 		planning: "codex-lead/gpt-5.6-sol",
-		audit: "codex-reviewer/gpt-5.6-luna",
+		audit: "codex-peer/gpt-5.6-luna",
 	},
 	preferences: [
-		"Use codex-lead for decomposition and acceptance, codex-worker for bounded writes in the current workspace, and codex-reviewer for fresh review of an exact candidate SHA when available or the current working diff otherwise.",
+		"Use codex-lead for topology and acceptance, and codex-peer for one bounded disposition: engineer writes only with valid V3 scope; scout/architect/reviewer/shadow are read-only. No Beads or substitute tracker is active; assignments and handbacks in Paseo messages are work state.",
 		"Use Vietnamese for every user-facing response and every agent-to-agent prompt, message, report, review, and handoff. Preserve code, commands, paths, identifiers, protocol fields, quoted logs/errors, and machine-readable tokens. A specific explicit Human language request overrides this only for that output.",
 		"Same-family routing is mandatory by default: a Codex Lead routes to codex-* role providers. Use pi-* or claude-* only when the Human explicitly requests that provider family for the delegation. If the required Codex role is unavailable, block and ask; profile availability or model ranking never authorizes cross-family substitution.",
 		"When list_profiles is available, treat a complete profile whose provider matches the chosen codex role as a human-authored route candidate. Notes are advisory; validate model, thinking, mode, and features through discovery, copy the fields into create_agent, and post-verify runtime state. Never silently repair a stale profile.",
-		"For impl and ui agents, use codex-worker/gpt-5.6-luna with thinkingOptionId max. Luna max is the required default, not an optional downgrade.",
-		"For research and audit agents, use codex-reviewer/gpt-5.6-luna with thinkingOptionId max. Luna max is the required Reviewer default, not an optional downgrade.",
+		"For every Peer disposition, use codex-peer/gpt-5.6-luna with thinkingOptionId max unless the validated Human route says otherwise. Route never grants authority.",
 		"Discover provider/model availability on the target Paseo daemon before creating an agent. Never silently fall back.",
-		"Every subagent must inherit the Lead current workspace. Never pass workspace placement, call create_workspace, or run manual git worktree commands. Serialize Engineer and Reviewer; keep at most one active writer. Do not use codex-supervisor in ordinary single-task flows.",
+		"Every subagent must inherit the Lead current workspace. Never pass workspace placement, call create_workspace, or run manual git worktree commands. Serialize engineer Peer and reviewer Peer; keep at most one active writer. Do not use codex-supervisor in ordinary single-task flows."
 	],
 };
 
@@ -323,6 +309,17 @@ async function writeJsonAtomic(pathname, value) {
 	console.log(`${dryRun ? "would update" : "updated"}: ${pathname}`);
 }
 
+function retireLegacySLPProviders(config) {
+	const providers = config.agents?.providers ?? {};
+	const present = retiredRoles.filter((role) => providers[`codex-${role}`]);
+	if (present.length && !force) {
+		throw new Error(
+			"Legacy Worker/Reviewer providers found; rerun with --force to migrate to the three-role SLP topology",
+		);
+	}
+	for (const role of retiredRoles) delete providers[`codex-${role}`];
+}
+
 async function main() {
 	for (const profile of profileNames) {
 		const source = path.join(sourceProfiles, `${profile}.config.toml`);
@@ -351,6 +348,7 @@ async function main() {
 	config.daemon.mcp.injectIntoAgents = false;
 	config.agents ??= {};
 	config.agents.providers ??= {};
+	retireLegacySLPProviders(config);
 
 	for (const [id, desired] of Object.entries(providerConfig())) {
 		const current = config.agents.providers[id];

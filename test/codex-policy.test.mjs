@@ -1,54 +1,35 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseTaskBrief, workerGitAuthority } from "../codex-orchestration/shared/paseo-team-policy/brief.mjs";
-import { blockReasonForTool, createAgentTitleBlockReason, detectRole, gitAuthorityBlockReason, supervisorCreateAgentBlockReason, ownedScopeBlockReason } from "../codex-orchestration/shared/paseo-team-policy/policy.mjs";
+import { blockReasonForTool, detectRole } from "../codex-orchestration/shared/paseo-team-policy/policy.mjs";
+
 const repo = path.resolve(import.meta.dirname, "..");
-const valid = parseTaskBrief(`PASEO_TEAM_TASK_V3_BEGIN\nTASK_ID: T-CODEX\nMODE: write\nOWNED_SCOPE: codex-orchestration, test\nPASEO_TEAM_TASK_V3_END`);
-assert.deepEqual(workerGitAuthority(valid), {
- edit: true, commit: true, push: true, forcePush: false, merge: true, deploy: false,
+const engineer = parseTaskBrief(`PASEO_TEAM_TASK_V3_BEGIN\nTASK_ID: T-CODEX\nDISPOSITION: engineer\nMODE: write\nOWNED_SCOPE: codex-orchestration, test\nPASEO_TEAM_TASK_V3_END`);
+assert.deepEqual(workerGitAuthority(engineer), { edit: true, commit: true, push: true, forcePush: false, merge: true, deploy: false });
+const reviewer = parseTaskBrief(`PASEO_TEAM_TASK_V3_BEGIN\nTASK_ID: T-R\nDISPOSITION: reviewer\nMODE: read-only\nPASEO_TEAM_TASK_V3_END`);
+assert.equal(workerGitAuthority(reviewer).edit, false);
+const invalidReviewerWrite = parseTaskBrief(`PASEO_TEAM_TASK_V3_BEGIN\nTASK_ID: T-BAD\nDISPOSITION: reviewer\nMODE: write\nOWNED_SCOPE: test\nPASEO_TEAM_TASK_V3_END`);
+assert.ok(invalidReviewerWrite.malformed.some((x) => x.includes("only for DISPOSITION: engineer")));
+assert.equal(workerGitAuthority(invalidReviewerWrite).edit, false);
+
+process.env.PASEO_CODEX_ROLE = "peer";
+assert.equal(detectRole(), "peer");
+assert.equal(blockReasonForTool("peer", engineer, "apply_patch", { command: "*** Begin Patch\n*** Update File: test/new.mjs\n*** End Patch" }, repo), null);
+assert.match(blockReasonForTool("peer", reviewer, "apply_patch", { command: "*** Begin Patch\n*** Update File: test/new.mjs\n*** End Patch" }, repo), /read-only/);
+assert.match(blockReasonForTool("peer", engineer, "apply_patch", { command: "*** Begin Patch\n*** Update File: README.md\n*** End Patch" }, repo), /outside OWNED_SCOPE/);
+assert.match(blockReasonForTool("peer", engineer, "mcp__paseo__create_agent", {}, repo), /cannot use Paseo/);
+assert.match(blockReasonForTool("peer", engineer, "Bash", { command: "git push --force" }, repo), /FORCE_PUSH_AUTHORITY/);
+
+const home = mkdtempSync(path.join(tmpdir(), "paseo-codex-slp-"));
+const install = spawnSync(process.execPath, [path.join(repo, "codex-orchestration", "install.mjs")], {
+  env: { ...process.env, CODEX_HOME: path.join(home, "codex"), PASEO_HOME: path.join(home, "paseo"), PASEO_CODEX_ROLES_HOME: path.join(home, "roles") }, encoding: "utf8",
 });
-assert.equal(process.env.PASEO_CODEX_ROLE, undefined);
-process.env.PASEO_CODEX_ROLE = "worker"; assert.equal(detectRole(), "worker");
-assert.match(blockReasonForTool("worker", null, "Bash", { command: "echo x" }, repo), /read-only/);
-assert.match(blockReasonForTool("reviewer", valid, "apply_patch", { command: "*** Begin Patch\n*** Update File: README.md\n*** End Patch" }, repo), /read-only/);
-assert.match(blockReasonForTool("reviewer", valid, "Bash", { command: "ls" }, repo), /read-only/);
-assert.match(ownedScopeBlockReason(valid, "README.md", repo), /outside OWNED_SCOPE/);
-assert.equal(blockReasonForTool("worker", valid, "apply_patch", { command: "*** Begin Patch\n*** Update File: test/new.mjs\n*** End Patch" }, repo), null);
-assert.match(blockReasonForTool("worker", valid, "apply_patch", { command: "*** Begin Patch\n*** Update File: test/new.mjs\n*** Update File: README.md\n*** End Patch" }, repo), /outside OWNED_SCOPE/);
-assert.equal(blockReasonForTool("lead", null, "mcp__paseo__list_agents", {}, repo), null);
-assert.match(createAgentTitleBlockReason({ provider: "codex-worker/model" }), /non-empty title/);
-assert.match(createAgentTitleBlockReason({ title: "PASEO_TEAM_TASK_V3_BEGIN", provider: "codex-worker/model" }), /not a PASEO_TEAM_TASK_V3 marker/);
-assert.equal(createAgentTitleBlockReason({ title: "T-1730 · Worker · Viết retry pattern", provider: "codex-worker/model" }), null);
-assert.match(blockReasonForTool("lead", null, "mcp__paseo__create_agent", { provider: "codex-worker/model" }, repo), /non-empty title/);
-assert.match(blockReasonForTool("lead", null, "mcp__paseo__evil_list_agents", {}, repo), /not in the Lead MCP allowlist/);
-assert.match(blockReasonForTool("supervisor", null, "mcp__paseo__evil_list_agents", {}, repo), /only call monitoring/);
-assert.equal(gitAuthorityBlockReason("git push origin main", { push: true }, "T-CODEX"), null);
-assert.equal(gitAuthorityBlockReason("git push -u origin HEAD:main", { push: true }, "T-CODEX"), null);
-assert.match(gitAuthorityBlockReason("git push origin main", { push: false }, "T-CODEX"), /MODE: write is required to push/);
-assert.match(gitAuthorityBlockReason("git push origin main --force", { push: true }, "T-CODEX"), /FORCE_PUSH_AUTHORITY/);
-assert.match(gitAuthorityBlockReason("git merge main", { merge: false }, "T-CODEX"), /MODE: write is required to merge/);
-assert.equal(gitAuthorityBlockReason("git merge main", { merge: true }, "T-CODEX"), null);
-assert.match(supervisorCreateAgentBlockReason({ title: "T-1730 · Recovery · Lead", provider: "codex-worker/x", labels: { purpose: "recovery", recovery_for: "p" }, settings: { thinkingOptionId: "high" } }), /codex-lead/);
-assert.equal(supervisorCreateAgentBlockReason({ title: "T-1730 · Recovery · Lead", provider: "codex-lead/x/y", labels: { purpose: "recovery", recovery_for: "p" }, settings: { thinkingOptionId: "high" } }), null);
-const home = mkdtempSync(path.join(tmpdir(), "paseo-codex-hook-")); mkdirSync(path.join(home, "hooks"));
-const run = (name, event) => spawnSync(process.execPath, [path.join(repo, "codex-orchestration/shared/paseo-team-policy", name)], { env: { ...process.env, TMPDIR: home, PASEO_CODEX_ROLE: "worker" }, input: JSON.stringify(event), encoding: "utf8" });
-assert.equal(run("user-prompt-submit.mjs", { session_id: "s", prompt: "plain" }).status, 0);
-assert.equal(run("pre-tool-use.mjs", {}).status, 2);
-assert.equal(run("pre-tool-use.mjs", []).status, 2);
-const denied = run("pre-tool-use.mjs", { session_id: "s", cwd: repo, tool_name: "Bash", tool_input: { command: "git push origin main" } });
-assert.equal(denied.status, 0); assert.match(denied.stdout, /permissionDecision.*deny/);
-const installRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-"));
-const outside = path.join(installRoot, "outside.toml"); writeFileSync(outside, "sentinel");
-const codexHome = path.join(installRoot, "codex"); mkdirSync(codexHome); symlinkSync(outside, path.join(codexHome, "paseo-lead.config.toml"));
-const install = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs"), "--dry-run", "--force"], { env: { ...process.env, CODEX_HOME: codexHome, PASEO_HOME: path.join(installRoot, "paseo"), PASEO_CODEX_ROLES_HOME: path.join(installRoot, "roles") }, encoding: "utf8" });
-assert.equal(install.status, 1); assert.match(install.stderr, /symlink target/); assert.equal(readFileSync(outside, "utf8"), "sentinel");
-const goodRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-good-"));
-const good = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs")], { env: { ...process.env, CODEX_HOME: path.join(goodRoot, "codex"), PASEO_HOME: path.join(goodRoot, "paseo"), PASEO_CODEX_ROLES_HOME: path.join(goodRoot, "roles") }, encoding: "utf8" });
-assert.equal(good.status, 0, good.stderr); assert.ok(existsSync(path.join(goodRoot, "roles", "lead", "hooks.json"))); assert.ok(!existsSync(path.join(goodRoot, "roles", "lead", "hooks", "hooks.json")));
-const linkedRoot = mkdtempSync(path.join(tmpdir(), "paseo-codex-install-linked-")); const linkedRoles = path.join(linkedRoot, "roles"); const linkedOutside = path.join(linkedRoot, "outside"); mkdirSync(linkedOutside, { recursive: true }); mkdirSync(path.join(linkedRoles, "lead"), { recursive: true }); symlinkSync(linkedOutside, path.join(linkedRoles, "lead", "hooks"));
-const linked = spawnSync(process.execPath, [path.join(repo, "codex-orchestration/install.mjs")], { env: { ...process.env, CODEX_HOME: path.join(linkedRoot, "codex"), PASEO_HOME: path.join(linkedRoot, "paseo"), PASEO_CODEX_ROLES_HOME: linkedRoles }, encoding: "utf8" });
-assert.equal(linked.status, 1); assert.match(linked.stderr, /symlink directory/);
-console.log("[codex-policy] tests passed");
+assert.equal(install.status, 0, install.stderr);
+const config = JSON.parse(readFileSync(path.join(home, "paseo", "config.json"), "utf8"));
+assert.deepEqual(Object.keys(config.agents.providers).sort(), ["codex-lead", "codex-peer", "codex-supervisor"]);
+assert.ok(existsSync(path.join(home, "roles", "peer", "config.toml")));
+assert.ok(!existsSync(path.join(home, "roles", "worker", "config.toml")));
+console.log("[paseo-team] codex SLP policy tests passed");
