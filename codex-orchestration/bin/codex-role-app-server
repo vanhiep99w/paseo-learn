@@ -24,10 +24,10 @@ if [[ -n "${PASEO_AGENT_ID:-}" && -n "${PASEO_AGENT_CWD:-}" ]]; then
 	workspace_dir="$(realpath -m "$PASEO_AGENT_CWD")"
 fi
 
-# Paseo daemon-wide MCP injection is disabled. Only providers declaring
-# PASEO_MCP_ACCESS receive the agent-scoped endpoint. The launcher deliberately
-# adds no filesystem sandbox; role config and developer instructions control the
-# requested full-access runtime and its behavioral authority boundaries.
+# Paseo's MCP catalog must be injected globally for the agent-scoped endpoint
+# to publish tools. Only providers declaring PASEO_MCP_ACCESS receive this
+# explicit endpoint. The launcher deliberately adds no filesystem sandbox; role
+# config and developer instructions control behavioral authority boundaries.
 case "${PASEO_MCP_ACCESS:-}" in
 	"")
 		;;

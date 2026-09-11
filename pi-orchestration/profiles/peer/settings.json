@@ -2,7 +2,7 @@
   "extensions": ["./extensions/paseo-team-policy.ts"],
   "skills": ["./skills"],
   "prompts": ["./prompts"],
-  "defaultProjectTrust": "never",
+  "defaultProjectTrust": "always",
   "enableSkillCommands": true,
   "packages": [
     "npm:pi-mcp-adapter",

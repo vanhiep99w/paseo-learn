@@ -4,13 +4,11 @@ set -euo pipefail
 # claude-role-app-server — selective Paseo MCP injector for the Claude Code
 # role pack.
 #
-# Mirrors pi-role-app-server / codex-role-app-server. Paseo daemon-wide MCP
-# injection is OFF (daemon.mcp.injectIntoAgents=false); only providers that set
-# PASEO_MCP_ACCESS=lead|supervisor reach this launcher. It derives the
-# agent-scoped MCP URL from PASEO_AGENT_ID and injects the paseo MCP server to
-# Claude Code via an inline --mcp-config JSON. Worker/Reviewer use plain
-# `claude` (no launcher, no injection), so they get no paseo server and cannot
-# orchestrate.
+# Paseo's MCP catalog must be injected globally for the agent-scoped endpoint
+# to publish tools. Providers that set PASEO_MCP_ACCESS=lead|supervisor reach
+# this launcher, which derives an agent-scoped MCP URL from PASEO_AGENT_ID and
+# injects it into Claude Code via an inline --mcp-config JSON. Role policy
+# remains the authority that prevents a Peer from orchestrating.
 #
 # The launcher adds NO filesystem sandbox. Claude Code runs full-access
 # (permissions defaultMode bypassPermissions); role behavior is bounded by the
@@ -39,12 +37,10 @@ if [[ -n "${PASEO_AGENT_ID:-}" && -n "${PASEO_AGENT_CWD:-}" ]]; then
 	workspace_dir="$(realpath -m "$PASEO_AGENT_CWD")"
 fi
 
-# Daemon-wide MCP injection is disabled. Only providers declaring
-# PASEO_MCP_ACCESS receive the agent-scoped paseo server, injected here as an
-# inline --mcp-config JSON (the Claude Code equivalent of codex's
-# `mcp_servers.paseo.url=...` -c override). The supervisor's 11-tool allowlist
-# is enforced by the PreToolUse hook, not by this config (Claude Code's MCP
-# config has no per-tool includeTools field).
+# The globally enabled MCP catalog supplies tools. Only providers declaring
+# PASEO_MCP_ACCESS receive this explicit agent-scoped Paseo server, injected as
+# inline --mcp-config JSON (the Claude Code equivalent of codex's override).
+# The supervisor allowlist is enforced by the PreToolUse hook, not this config.
 claude_args=()
 case "${PASEO_MCP_ACCESS:-}" in
 	"")

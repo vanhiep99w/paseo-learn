@@ -3,13 +3,11 @@ set -euo pipefail
 
 # pi-role-app-server — selective Paseo MCP injector for the Pi role pack.
 #
-# Mirrors codex-role-app-server. Paseo daemon-wide MCP injection is OFF; only
-# providers that set PASEO_MCP_ACCESS=lead|supervisor reach this launcher, which
-# derives the agent-scoped MCP URL from PASEO_AGENT_ID and exports it as
-# PASEO_MCP_URL. The role's own mcp.json (in PI_CODING_AGENT_DIR) references that
-# URL via ${PASEO_MCP_URL}, so lead/supervisor get the Paseo MCP server while
-# worker/reviewer (plain `pi`, no launcher, no paseo entry in their mcp.json)
-# get none.
+# Paseo's MCP catalog must be injected globally for the agent-scoped endpoint
+# to publish tools. Only providers that set PASEO_MCP_ACCESS=lead|supervisor
+# reach this launcher, which derives PASEO_MCP_URL from PASEO_AGENT_ID. The
+# role's own mcp.json (in PI_CODING_AGENT_DIR) consumes that URL; the role policy
+# remains the authority that prevents a Peer from orchestrating.
 #
 # The launcher adds NO filesystem sandbox. Pi has no sandbox mode; role behavior
 # is bounded by the role AGENTS.md (system prompt), the per-role tool allowlist
@@ -38,9 +36,9 @@ if [[ -n "${PASEO_AGENT_ID:-}" && -n "${PASEO_AGENT_CWD:-}" ]]; then
 	workspace_dir="$(realpath -m "$PASEO_AGENT_CWD")"
 fi
 
-# Daemon-wide MCP injection is disabled. Only providers declaring
-# PASEO_MCP_ACCESS receive the agent-scoped endpoint URL via env. The role's
-# mcp.json (under PI_CODING_AGENT_DIR) consumes it through ${PASEO_MCP_URL}.
+# The globally enabled MCP catalog supplies the tools. Only providers declaring
+# PASEO_MCP_ACCESS receive this explicit agent-scoped endpoint URL via env; the
+# role's mcp.json (under PI_CODING_AGENT_DIR) consumes it through PASEO_MCP_URL.
 case "${PASEO_MCP_ACCESS:-}" in
 	"")
 		;;

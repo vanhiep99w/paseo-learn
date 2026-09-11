@@ -345,7 +345,7 @@ async function main() {
 	config.daemon ??= {};
 	config.daemon.mcp ??= {};
 	config.daemon.mcp.enabled = true;
-	config.daemon.mcp.injectIntoAgents = false;
+	config.daemon.mcp.injectIntoAgents = true;
 	config.agents ??= {};
 	config.agents.providers ??= {};
 	retireLegacySLPProviders(config);

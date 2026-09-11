@@ -14,7 +14,7 @@
  *     pi-mcp-adapter package, while keeping role resources isolated;
  *   - the launcher pi-role-app-server is copied to ~/.paseo/bin;
  *   - four providers (pi-lead/worker/reviewer/supervisor) are merged into
- *     ~/.paseo/config.json with daemon.mcp.injectIntoAgents=false;
+ *     ~/.paseo/config.json with daemon.mcp.injectIntoAgents=true;
  *   - four namespaced Agent Profiles are merged without replacing Human-owned
  *     entries; they pin the first/default model advertised by the live Pi
  *     catalog and fail closed on managed-profile conflicts unless --force;
@@ -608,7 +608,7 @@ async function preparePaseoConfig(profiles) {
 	config.daemon ??= {};
 	config.daemon.mcp ??= {};
 	config.daemon.mcp.enabled = true;
-	config.daemon.mcp.injectIntoAgents = false;
+	config.daemon.mcp.injectIntoAgents = true;
 	mergeManagedAgentProfiles(config, profiles);
 	config.agents ??= {};
 	config.agents.providers ??= {};

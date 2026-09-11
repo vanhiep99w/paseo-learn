@@ -13,7 +13,7 @@ what differs from the active packs.
 | Aspect | Active packs | This reference pack |
 |---|---|---|
 | Roles | 3 (lead/peer/supervisor); Peer disposition + V3 mode | 3 (lead/peer/supervisor); historical peer authority fields |
-| MCP injection | `injectIntoAgents=false` + launcher-selective | `injectIntoAgents=true` (global) + extension `setActiveTools` blocks peers |
+| MCP injection | `injectIntoAgents=true` (global catalog) + role launcher/policy | `injectIntoAgents=true` (global) + extension `setActiveTools` blocks peers |
 | Role config | per-role `CODEX_HOME` / `PI_CODING_AGENT_DIR` | one shared extension + prompts under `~/.pi/agent/` |
 | Model routing | discovery + no-silent-fallback verify | full **four-layer** system with resolver + preflight |
 | Enforcement (Pi) | instruction + `includeTools` + extension | extension only (`setActiveTools` + `tool_call`) |
