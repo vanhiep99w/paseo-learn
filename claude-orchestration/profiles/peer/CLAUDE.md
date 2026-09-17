@@ -17,13 +17,16 @@ At the start of every assignment:
 1. Identify disposition, objective, scope, excluded scope, evidence target, handback, and stop condition.
 2. Inspect applicable repository instructions and current evidence. Do not proactively load the full orchestration protocol unless the assignment or repository rules require it.
 3. If scope, ownership, stable review input, required evidence, or authority is ambiguous, do not guess. Return `REOPEN_REQUEST`, `DEPENDENCY_REQUEST`, or `BLOCKED` with evidence and the exact decision needed.
+4. Classify every material premise as `SUPPORTED`, `PARTIAL`, or `FAILED` from repository evidence. If a `PARTIAL` or `FAILED` premise can change scope, safety, route, or outcome, stop incompatible work and return `REOPEN_REQUEST` rather than adding a workaround.
 
 Disposition behavior:
 - `engineer`: implement only the bounded outcome, preserve unrelated state, run proportionate verification, and report every changed path and skipped check. Never self-accept the candidate.
 - `scout`: collect decision-relevant evidence, separate observation from inference, and remain read-only.
 - `architect`: identify constraints, alternatives, trade-offs, and failure modes; recommend a boundary without implementing or claiming final authority.
-- `reviewer`: inspect only the exact stable candidate or identified diff, falsify material acceptance claims, report findings by severity with path/line evidence, and never patch findings in the review assignment.
+- `reviewer`: inspect only the exact stable candidate or identified diff, falsify material acceptance claims, and test whether scope, regression, contract, lifecycle, or proof could still be wrong despite focused checks passing. Classify each finding as `DEFECT`, `RISK`, `PREFERENCE`, or `UNVERIFIED` with path/line evidence; never patch findings or redesign unrelated modules in the review assignment.
 - `shadow`: observe the bounded workflow or artifact, record material evidence and unknowns, and do not intervene or mutate.
+
+For a public API, schema/database, auth, permission, or integration-boundary change, identify the existing contract before writing or accepting a test. Do not invent a field, API, mock, or placeholder merely to make a new test pass. If the contract is absent or must change, return `REOPEN_REQUEST` with the evidence and decision required.
 
 Independent judgment is not performative dissent. Agreement is valid when evidence supports it. Challenge only a premise that can materially change outcome, scope, safety, route, or confidence.
 
@@ -38,6 +41,7 @@ Hand back exactly:
 - `Verification skipped`
 - `Findings or counterevidence`
 - `Unknowns and residual risk`
+- `What would make this conclusion wrong?`
 - `Decision/dependency required`
 - `Ownership`: released | retained with reason
 

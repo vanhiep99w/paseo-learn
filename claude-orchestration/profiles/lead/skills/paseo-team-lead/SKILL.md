@@ -8,8 +8,8 @@ description: Điều phối topology Lead–Peer–Supervisor qua Paseo: assignm
 ## Preflight and topology
 
 Đọc request, Git state, repository instructions và `WORKSPACE_PROTOCOL.md` nếu
-có. Xác định objective, risk, moving/coupled scopes, evidence và unknowns. Chọn
-topology nhỏ nhất: Lead chỉ tự làm tiny work được lease cho phép; material scope
+có. Xác định objective, known evidence, open questions, non-goals, risk,
+moving/coupled scopes, evidence và unknowns. Chọn topology nhỏ nhất: Lead chỉ tự làm tiny work được lease cho phép; material scope
 có một Peer owner; reviewer Peer chỉ khi independent falsification giảm risk;
 Supervisor chỉ theo Human governance/recovery mandate. Không tạo Beads,
 tracker, task database, workspace/worktree, poller hay orchestration plane thứ
@@ -22,6 +22,12 @@ Mỗi Peer prompt bắt đầu bằng một disposition ngắn. Dùng đúng dò
 `DISPOSITION: reviewer`, `scout`, `architect`, hoặc `shadow` cho assignment
 read-only. Objective trung lập, không pre-solve; phần còn lại nêu objective,
 authority/boundary, evidence, handback và stop condition.
+
+Brief phải tách `KNOWN_EVIDENCE`, `OPEN_QUESTIONS` và `NON_GOALS`; không ép
+Peer chọn phương án Lead thích nếu đó không phải Human decision. Với public API,
+schema/database, auth, permission hoặc integration boundary, nêu
+`CONTRACT_BOUNDARY` hiện có trước khi yêu cầu write/test; contract thiếu hoặc cần
+đổi là `REOPEN_REQUEST`, không tự mint field/API/mock để test pass.
 
 Khi cần `OWNED_SCOPE` hẹp thay vì toàn workspace, dùng
 `$CLAUDE_CONFIG_DIR/templates/TASK_BRIEF.md`; never run a broad `find $HOME`.
@@ -43,15 +49,21 @@ và archive agent sai. Record `ROUTING_DECISION` với requested/observed eviden
 ## Execution, review, verdict
 
 Một write owner cho mỗi coupled scope. Peer Engineer handback SHA/diff,
-commands/checks hoặc skips, risks/counterevidence và lease state.
-`REOPEN_REQUEST`, `DEPENDENCY_REQUEST`, `COUNCIL_REQUEST`, `BLOCKED` hợp lệ.
+commands/checks hoặc skips, risks/counterevidence, what would make this conclusion
+wrong, và lease state. `REOPEN_REQUEST`, `DEPENDENCY_REQUEST`, `COUNCIL_REQUEST`,
+`BLOCKED` hợp lệ. Khi nhận `REOPEN_REQUEST`, Lead phải reconcile premise/evidence
+rồi phát brief mới, giữ premise bằng counterevidence, hoặc escalate Human decision;
+không trả lời “implement first” hay yêu cầu rework mơ hồ.
 Kết thúc turn sau spawn để notifyOnFinish wake Lead; không polling hoặc
 auto-approve permission.
 
 Chỉ sau Engineer idle, record HEAD/status rồi spawn fresh Peer
 `DISPOSITION: reviewer`, `MODE: read-only` trên exact stable candidate SHA/diff.
-Reviewer không patch. Drift sau review invalidates result. Correction quay về
-original engineer dưới fresh brief và candidate mới phải review lại.
+Reviewer không patch và phân loại finding là `DEFECT`, `RISK`, `PREFERENCE`,
+hoặc `UNVERIFIED`; reviewer phải thử falsify scope, regression, contract,
+lifecycle và proof, không redesign module ngoài mandate. Drift sau review
+invalidates result. Correction quay về original engineer dưới fresh brief và
+candidate mới phải review lại.
 
 Lead inspect evidence ổn định rồi ra verdict; Human giữ deploy/external effects.
 Status, confidence và một test pass không là acceptance.

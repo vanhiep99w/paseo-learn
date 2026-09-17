@@ -32,14 +32,26 @@ TASK_BODY_BEGIN
 OBJECTIVE:
   <neutral outcome, never a pre-solved implementation>
 
+KNOWN_EVIDENCE:
+  <observed artifacts and facts; separate them from inference>
+
+OPEN_QUESTIONS:
+  <premises the Peer may challenge; do not constrain the answer to preferred options>
+
+NON_GOALS:
+  <work or outcomes intentionally outside this assignment>
+
+CONTRACT_BOUNDARY:
+  <required only for public API, schema/database, auth, permission, or integration changes: existing contract that must hold, or the decision needed to change it>
+
 AUTHORITY_AND_BOUNDARIES:
   <owned/excluded scope, external-effect boundary, stop condition>
 
 EVIDENCE:
-  <current artifacts, reproduction, acceptance conditions, material unknowns>
+  <current artifacts, reproduction, acceptance conditions, material unknowns; classify material premises as SUPPORTED, PARTIAL, or FAILED>
 
 HANDBACK:
-  <changed/inspected scope, verification or skips, SHA/diff, risks, lease release>
+  <changed/inspected scope, verification or skips, SHA/diff, risks, what would make this conclusion wrong, lease release>
 TASK_BODY_END
 ```
 
@@ -58,5 +70,6 @@ TASK_BODY_END
   Peer, worktree mutation, and scope expansion are always denied.
 - There is no Beads or replacement tracker in this phase. The assignment and
   handback in Paseo messages are the work state; do not create a private ledger.
-- Reviewer Peer evaluates a stable SHA/diff and reports findings; it never
-  patches candidate code or claims acceptance.
+- Reviewer Peer evaluates a stable SHA/diff and reports findings as `DEFECT`,
+  `RISK`, `PREFERENCE`, or `UNVERIFIED`; it never patches candidate code,
+  redesigns unrelated modules, or claims acceptance.
